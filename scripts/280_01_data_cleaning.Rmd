@@ -5,10 +5,17 @@ date: "2025-12-13"
 output: html_document
 ---
 
+## step1 load data & Preprocessing
 ```{r}
+# 1. Load Library
 # install.packages("BiocManager")
 # BiocManager::install("SummarizedExperiment")
+#BiocManager::install("edgeR")
 library(SummarizedExperiment)
+library(ggplot2)
+library(ggrepel)
+library(edgeR)
+library(limma)
 ```
 
 ```{r}
@@ -74,9 +81,117 @@ final_counts_filtered <- final_counts_matrix[keep, ]
 print(paste("Total genes AFTER filtering:", nrow(final_counts_filtered)))
 print(paste("Removed:", nrow(final_counts_matrix) - nrow(final_counts_filtered), "noisy genes."))
 
-write.csv(final_counts_filtered, file.path("../output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
+write.csv(final_counts_filtered, file.path("output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
 
 dim(final_counts_filtered)
+```
+## step2 Exploratory data analysis (PCA)
+### PCA
+```{r}
+# 1. CPM normalization and log transformß
+library_sizes <- colSums(final_counts_filtered)
+
+cpm_matrix <- t(t(final_counts_filtered) / library_sizes) * 1e6
+logcpm_matrix <- log2(cpm_matrix + 1)
+```
+
+```{r}
+# 2. PCA
+
+
+pca_res <- prcomp(t(logcpm_matrix), scale. = TRUE)
+
+#df
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2],
+  Group = factor(c(
+    rep("ER+ Tumor", ncol(tcga_aligned)),
+    rep("Normal", ncol(gtex_aligned))
+  ))
+)
+
+# centroids 
+centroids <- aggregate(cbind(PC1, PC2) ~ Group, data = pca_df, mean)
+
+
+var_exp <- round(100 * summary(pca_res)$importance[2, 1:2], 1)
+```
+
+
+
+```{r}
+# Plot
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_label_repel(
+    data = centroids,
+    aes(x = PC1, y = PC2, label = Group),
+    inherit.aes = FALSE,
+    fontface = "bold",
+    size = 5
+  ) +
+  scale_color_manual(values = c("ER+ Tumor" = "#E76F51", "Normal" = "#2A9D8F")) +
+  labs(
+    title = "PCA of ER+ Tumor vs Normal Samples",
+    x = paste0("PC1 (", var_exp[1], "%)"),
+    y = paste0("PC2 (", var_exp[2], "%)")
+  ) +
+  theme_classic(base_size = 16) +
+  theme(legend.position = "right")
+```
+
+
+### Differential Expression Analysis
+
+We already remove the genes with low counts in the preprocessing step according to the criteria: dropped if they have very low counts (1cpm) in 25% of the samples
+
+```{r}
+# 1. mean-variance relationship
+gene_sd   <- apply(final_counts_filtered, 1, sd)
+gene_mean <- apply(final_counts_filtered, 1, mean)
+
+plot(
+  x = gene_mean,
+  y = gene_sd,
+  pch = 16,
+  cex = 0.4,
+  main = "Raw counts: variance depends on mean",
+  xlab = "Mean expression",
+  ylab = "Standard deviation"
+)
+```
+```{r}
+# 2. Voom Transformation
+group <- factor(
+  c(
+    rep("ER+ Tumor", ncol(tcga_aligned)),
+    rep("Normal", ncol(gtex_aligned))
+  )
+)
+
+design <- model.matrix(~ group)
+
+dge <- DGEList(counts = final_counts_filtered)
+dge <- calcNormFactors(dge)
+
+voom_out <- voom(dge, design, plot = TRUE)
+```
+```{r}
+# 3. Linear model + Bayes
+fit <- lmFit(voom_out, design)
+fit <- eBayes(fit)
+
+plotSA(
+  fit,
+  main = "Final model mean–variance trend"
+)
+```
+
+```{r}
+res <- topTable(fit, coef = "groupNormal", number = Inf, adjust.method = "BH")
+head(res)
+
 ```
 
 
