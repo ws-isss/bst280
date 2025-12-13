@@ -1,0 +1,40 @@
+# scripts/01_export_counts_meta.R
+
+library(SummarizedExperiment)
+
+# TCGA
+tcga_data <- readRDS(file.path("data","tcga_brca.rds"))
+tcga_counts <- assay(tcga_data)
+tcga_meta <- as.data.frame(colData(tcga_data))
+
+write.csv(tcga_counts, file.path("output","TCGA_BRCA_Counts.csv"), row.names = TRUE)
+write.csv(tcga_meta, file.path("output","TCGA_BRCA_Metadata.csv"), row.names = TRUE)
+
+gtex_data <- readRDS(file.path("data","gtex_breast.rds"))
+gtex_counts <- assay(gtex_data)
+gtex_meta <- as.data.frame(colData(gtex_data))
+
+write.csv(gtex_counts, file.path("output","GTEx_Breast_Counts.csv"), row.names = TRUE)
+write.csv(gtex_meta, file.path("output","GTEx_Breast_Metadata.csv"), row.names = TRUE)
+
+# positive
+grep("estrogen", colnames(tcga_meta), value = TRUE, ignore.case = TRUE)
+
+target_col <- "tcga.xml_breast_carcinoma_estrogen_receptor_status"
+table(tcga_meta[[target_col]])
+er_pos_ids <- which(tcga_meta[[target_col]] == "Positive")
+tcga_counts_ER_ONLY <- tcga_counts[, er_pos_ids]
+
+genes_tcga <- rownames(tcga_counts_ER_ONLY)
+genes_gtex <- rownames(gtex_counts)
+
+common_genes <- intersect(genes_tcga, genes_gtex)
+print(paste("TCGA:", length(genes_tcga)))
+print(paste("GTEx:", length(genes_gtex)))
+print(paste("common:", length(common_genes)))
+
+tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
+gtex_aligned <- gtex_counts[common_genes, ]
+
+final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
+write.csv(final_counts_matrix, file.path("output","Final_ERpos_Tumor_vs_Normal_Counts.csv"))
