@@ -16,3 +16,4 @@ gtex_meta <- as.data.frame(colData(gtex_data))
 
 write.csv(gtex_counts, file.path("output","GTEx_Breast_Counts.csv"), row.names = TRUE)
 write.csv(gtex_meta, file.path("output","GTEx_Breast_Metadata.csv"), row.names = TRUE)
+#test
