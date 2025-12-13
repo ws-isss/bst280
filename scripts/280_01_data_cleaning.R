@@ -1,8 +1,8 @@
-# scripts/01_export_counts_meta.R
-
+# install.packages("BiocManager")
+# BiocManager::install("SummarizedExperiment")
 library(SummarizedExperiment)
 
-# TCGA
+# 1. Load Data
 tcga_data <- readRDS(file.path("data","tcga_brca.rds"))
 tcga_counts <- assay(tcga_data)
 tcga_meta <- as.data.frame(colData(tcga_data))
@@ -17,7 +17,7 @@ gtex_meta <- as.data.frame(colData(gtex_data))
 write.csv(gtex_counts, file.path("output","GTEx_Breast_Counts.csv"), row.names = TRUE)
 write.csv(gtex_meta, file.path("output","GTEx_Breast_Metadata.csv"), row.names = TRUE)
 
-# positive
+# 2. Filter ER+ samples
 grep("estrogen", colnames(tcga_meta), value = TRUE, ignore.case = TRUE)
 
 target_col <- "tcga.xml_breast_carcinoma_estrogen_receptor_status"
@@ -25,6 +25,7 @@ table(tcga_meta[[target_col]])
 er_pos_ids <- which(tcga_meta[[target_col]] == "Positive")
 tcga_counts_ER_ONLY <- tcga_counts[, er_pos_ids]
 
+# 3. Align genes
 genes_tcga <- rownames(tcga_counts_ER_ONLY)
 genes_gtex <- rownames(gtex_counts)
 
@@ -33,8 +34,10 @@ print(paste("TCGA:", length(genes_tcga)))
 print(paste("GTEx:", length(genes_gtex)))
 print(paste("common:", length(common_genes)))
 
+# subset and order both matrices by common genes
 tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
 gtex_aligned <- gtex_counts[common_genes, ]
 
 final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
 write.csv(final_counts_matrix, file.path("output","Final_ERpos_Tumor_vs_Normal_Counts.csv"))
+print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
