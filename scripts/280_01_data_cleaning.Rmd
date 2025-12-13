@@ -50,7 +50,7 @@ print(paste("common:", length(common_genes)))
 ```
 
 ```{r}
-# subset and order both matrices by common genes
+# 4. Subset and order both matrices by common genes
 tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
 gtex_aligned <- gtex_counts[common_genes, ]
 
@@ -58,4 +58,23 @@ final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
 write.csv(final_counts_matrix, file.path("output","Final_ERpos_Tumor_vs_Normal_Counts.csv"))
 print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
 ```
+
+```{r}
+# 5. Low Count Filtering
+print(nrow(final_counts_matrix))
+
+library_sizes <- colSums(final_counts_matrix)
+cpm_matrix <- t(t(final_counts_matrix) / library_sizes) * 1e6
+
+min_samples <- ncol(final_counts_matrix) / 4
+keep <- rowSums(cpm_matrix > 1) >= min_samples
+
+final_counts_filtered <- final_counts_matrix[keep, ]
+
+print(paste("Total genes AFTER filtering:", nrow(final_counts_filtered)))
+print(paste("Removed:", nrow(final_counts_matrix) - nrow(final_counts_filtered), "noisy genes."))
+
+write.csv(final_counts_filtered, file.path("../output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
+```
+
 
