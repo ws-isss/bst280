@@ -75,6 +75,8 @@ print(paste("Total genes AFTER filtering:", nrow(final_counts_filtered)))
 print(paste("Removed:", nrow(final_counts_matrix) - nrow(final_counts_filtered), "noisy genes."))
 
 write.csv(final_counts_filtered, file.path("../output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
+
+dim(final_counts_filtered)
 ```
 
 
