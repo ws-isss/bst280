@@ -1,0 +1,538 @@
+---
+title: "BST280"
+author: "group6"
+date: "2025-12-13"
+output: html_document
+---
+
+## step1 load data & Preprocessing
+```{r}
+# 1. Load Library
+# install.packages("BiocManager")
+# BiocManager::install("SummarizedExperiment")
+#BiocManager::install("edgeR")
+library(SummarizedExperiment)
+library(ggplot2)
+library(ggrepel)
+library(edgeR)
+library(limma)
+```
+
+```{r}
+# 1. Load Data
+tcga_data <- readRDS(file.path("data","tcga_brca.rds"))
+tcga_counts <- assay(tcga_data)
+tcga_meta <- as.data.frame(colData(tcga_data))
+
+write.csv(tcga_counts, file.path("output","TCGA_BRCA_Counts.csv"), row.names = TRUE)
+write.csv(tcga_meta, file.path("output","TCGA_BRCA_Metadata.csv"), row.names = TRUE)
+
+gtex_data <- readRDS(file.path("data","gtex_breast.rds"))
+gtex_counts <- assay(gtex_data)
+gtex_meta <- as.data.frame(colData(gtex_data))
+
+write.csv(gtex_counts, file.path("output","GTEx_Breast_Counts.csv"), row.names = TRUE)
+write.csv(gtex_meta, file.path("output","GTEx_Breast_Metadata.csv"), row.names = TRUE)
+```
+
+```{r}
+# 2. Filter ER+ samples
+grep("estrogen", colnames(tcga_meta), value = TRUE, ignore.case = TRUE)
+
+target_col <- "tcga.xml_breast_carcinoma_estrogen_receptor_status"
+table(tcga_meta[[target_col]])
+er_pos_ids <- which(tcga_meta[[target_col]] == "Positive")
+tcga_counts_ER_ONLY <- tcga_counts[, er_pos_ids]
+```
+
+```{r}
+# 3. Align genes
+genes_tcga <- rownames(tcga_counts_ER_ONLY)
+genes_gtex <- rownames(gtex_counts)
+
+common_genes <- intersect(genes_tcga, genes_gtex)
+print(paste("TCGA:", length(genes_tcga)))
+print(paste("GTEx:", length(genes_gtex)))
+print(paste("common:", length(common_genes)))
+```
+
+```{r}
+# 4. Subset and order both matrices by common genes
+tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
+gtex_aligned <- gtex_counts[common_genes, ]
+
+final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
+write.csv(final_counts_matrix, file.path("output","Final_ERpos_Tumor_vs_Normal_Counts.csv"))
+print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
+```
+
+```{r}
+# 5. Low Count Filtering
+print(nrow(final_counts_matrix))
+
+library_sizes <- colSums(final_counts_matrix)
+cpm_matrix <- t(t(final_counts_matrix) / library_sizes) * 1e6
+
+min_samples <- ncol(final_counts_matrix) / 4
+keep <- rowSums(cpm_matrix > 1) >= min_samples
+
+final_counts_filtered <- final_counts_matrix[keep, ]
+
+print(paste("Total genes AFTER filtering:", nrow(final_counts_filtered)))
+print(paste("Removed:", nrow(final_counts_matrix) - nrow(final_counts_filtered), "noisy genes."))
+
+write.csv(final_counts_filtered, file.path("output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
+
+dim(final_counts_filtered)
+```
+## step2 Exploratory data analysis (PCA)
+### PCA
+```{r}
+# 1. CPM normalization and log transformß
+library_sizes <- colSums(final_counts_filtered)
+
+cpm_matrix <- t(t(final_counts_filtered) / library_sizes) * 1e6
+logcpm_matrix <- log2(cpm_matrix + 1)
+```
+
+```{r}
+# 2. PCA
+
+
+pca_res <- prcomp(t(logcpm_matrix), scale. = TRUE)
+
+#df
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2],
+  Group = factor(c(
+    rep("ER+ Tumor", ncol(tcga_aligned)),
+    rep("Normal", ncol(gtex_aligned))
+  ))
+)
+
+# centroids 
+centroids <- aggregate(cbind(PC1, PC2) ~ Group, data = pca_df, mean)
+
+
+var_exp <- round(100 * summary(pca_res)$importance[2, 1:2], 1)
+```
+
+
+
+```{r}
+# Plot
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_label_repel(
+    data = centroids,
+    aes(x = PC1, y = PC2, label = Group),
+    inherit.aes = FALSE,
+    fontface = "bold",
+    size = 5
+  ) +
+  scale_color_manual(values = c("ER+ Tumor" = "#E76F51", "Normal" = "#2A9D8F")) +
+  labs(
+    title = "PCA of ER+ Tumor vs Normal Samples",
+    x = paste0("PC1 (", var_exp[1], "%)"),
+    y = paste0("PC2 (", var_exp[2], "%)")
+  ) +
+  theme_classic(base_size = 16) +
+  theme(legend.position = "right")
+```
+
+
+### Differential Expression Analysis
+
+We already remove the genes with low counts in the preprocessing step according to the criteria: dropped if they have very low counts (1cpm) in 25% of the samples
+
+```{r}
+# 1. mean-variance relationship
+gene_sd   <- apply(final_counts_filtered, 1, sd)
+gene_mean <- apply(final_counts_filtered, 1, mean)
+
+plot(
+  x = gene_mean,
+  y = gene_sd,
+  pch = 16,
+  cex = 0.4,
+  main = "Raw counts: variance depends on mean",
+  xlab = "Mean expression",
+  ylab = "Standard deviation"
+)
+```
+```{r}
+# 2. Voom Transformation
+group <- factor(
+  c(
+    rep("ER+ Tumor", ncol(tcga_aligned)),
+    rep("Normal", ncol(gtex_aligned))
+  )
+)
+
+design <- model.matrix(~ group)
+
+dge <- DGEList(counts = final_counts_filtered)
+dge <- calcNormFactors(dge)
+
+voom_out <- voom(dge, design, plot = TRUE)
+```
+```{r}
+# 3. Linear model + Bayes
+fit <- lmFit(voom_out, design)
+fit <- eBayes(fit)
+
+plotSA(
+  fit,
+  main = "Final model mean–variance trend"
+)
+```
+
+```{r}
+res <- topTable(fit, coef = "groupNormal", number = Inf, adjust.method = "BH")
+head(res)
+
+```
+
+## step3 Visualization and Enrichment Analysis
+### Explore the DE results
+We first summarized the number of differentially expressed (DE) genes between ER+ tumor (TCGA) and normal breast tissue (GTEx) using a stringent cutoff of FDR < 0.05 and |log2 fold-change| > 2. Under this threshold, we identified **3106** DE genes in total.
+
+Because the model coefficient is defined as **log2FC = (Normal − Tumor)**, genes with **negative log2FC** are higher in **ER+ tumor**, while genes with **positive log2FC** are higher in **normal** tissue. Using this convention, **1325 genes** are upregulated in **ER+ tumor** (log2FC < −2) and **1781 genes** are upregulated in **normal** tissue (log2FC > 2).
+
+Overall, this indicates widespread transcriptional differences between ER+ breast tumors and normal breast tissue, motivating downstream visualization (volcano/MA plots and heatmaps) and pathway-level enrichment analyses to interpret these changes at the level of biological programs.
+```{r}
+de_all_idx  <- res$adj.P.Val < 0.05 & abs(res$logFC) > 2
+n_de_all    <- sum(de_all_idx)
+
+tumor_up_idx  <- res$adj.P.Val < 0.05 & res$logFC < -2
+n_tumor_up    <- sum(tumor_up_idx)
+
+normal_up_idx <- res$adj.P.Val < 0.05 & res$logFC >  2
+n_normal_up   <- sum(normal_up_idx)
+
+cat("Total DE genes (FDR < 0.05 and |log2FC| > 2):", n_de_all, "\n")
+cat("Up in ER+ Tumor (logFC < -2):", n_tumor_up, "\n")
+cat("Up in Normal (logFC > 2):", n_normal_up, "\n")
+```
+
+### Volcano Plot
+We next visualized the DE results using a volcano plot.
+```{r}
+plot_df <- data.frame(
+  logFC = res$logFC,
+  negLogFDR = -log10(res$adj.P.Val)
+)
+
+plot_df$threshold <- "Not significant"
+plot_df$threshold[res$adj.P.Val < 0.05 & res$logFC > 2] <- "Up in Normal"
+plot_df$threshold[res$adj.P.Val < 0.05 & res$logFC < -2] <- "Up in Tumor"
+
+ggplot(plot_df, aes(x = logFC, y = negLogFDR, color = threshold)) +
+  geom_point(alpha = 0.6, size = 1.2) +
+  scale_color_manual(
+    values = c(
+      "Up in Tumor" = "#E67E22",
+      "Up in Normal" = "#2980B9",
+      "Not significant" = "grey70"
+    )
+  ) +
+  labs(
+    title = "Volcano Plot: ER+ Tumor vs Normal",
+    x = "log2 Fold Change (Normal - Tumor)",
+    y = "-log10(FDR)"
+  ) +
+  theme_classic(base_size = 15)
+```
+
+The volcano plot summarizes differential expression results by simultaneously displaying effect size and statistical significance. Each point represents one gene, with the x-axis showing the log2 fold change (Normal − Tumor) and the y-axis showing −log10(FDR). Genes farther from zero on the x-axis exhibit larger expression differences, while genes higher on the y-axis are more statistically significant.
+
+Using a cutoff of FDR < 0.05 and |log2 fold-change| > 2, genes upregulated in ER+ tumor tissue (log2FC < −2) are highlighted in orange, whereas genes upregulated in normal breast tissue (log2FC > 2) are shown in blue. Genes that do not meet these thresholds are shown in grey.
+
+The plot reveals a large number of highly significant genes on both sides of the distribution, indicating strong transcriptional differences between ER+ breast tumors and normal tissue. Notably, many tumor-upregulated genes exhibit both large effect sizes and extremely low FDR values, consistent with widespread activation of tumor-associated transcriptional programs.
+
+A horizontal band of points is observed at the top of the volcano plot, corresponding to genes with extremely small adjusted p-values. For these genes, the FDR values are numerically close to zero due to very strong statistical evidence, causing −log10(FDR) to approach infinity. This behavior is expected in large RNA-seq datasets with high statistical power and does not affect the interpretation of differential expression patterns.
+
+These patterns motivate downstream pathway-level analyses to determine which biological processes drive the observed expression changes.
+
+### MA Plot
+We additionally used an MA plot to visualize log2 fold-changes as a function of average expression. This plot helps assess whether large fold-changes are concentrated among lowly expressed genes (which can be noisier) and whether the overall distribution of changes is centered around zero.
+```{r}
+ma_df <- data.frame(
+  AveExpr = res$AveExpr,
+  logFC   = res$logFC,
+  adjP    = res$adj.P.Val
+)
+
+ma_df$threshold <- "Not significant"
+ma_df$threshold[ma_df$adjP < 0.05 & ma_df$logFC > 2]  <- "Up in Normal"
+ma_df$threshold[ma_df$adjP < 0.05 & ma_df$logFC < -2] <- "Up in Tumor"
+
+ggplot(ma_df, aes(x = AveExpr, y = logFC, color = threshold)) +
+  geom_point(alpha = 0.5, size = 1.2) +
+  scale_color_manual(
+    values = c(
+      "Up in Tumor" = "#E67E22",
+      "Up in Normal" = "#2980B9",
+      "Not significant" = "grey70"
+    )
+  ) +
+  labs(
+    title = "MA Plot: ER+ Tumor vs Normal",
+    x = "Average log-expression",
+    y = "log2 Fold Change (Normal - Tumor)"
+  ) +
+  theme_classic(base_size = 15)
+```
+
+The MA plot displays the relationship between gene expression abundance and differential expression. Each point represents one gene, with the x-axis showing the average log-expression across all samples and the y-axis showing the log2 fold change (Normal − Tumor).
+
+Genes significantly upregulated in normal tissue (FDR < 0.05 and log2FC > 2) are shown in blue, while genes upregulated in ER+ tumor tissue (FDR < 0.05 and log2FC < −2) are shown in orange. Non-significant genes are shown in grey.
+
+Most genes with low average expression cluster tightly around log2 fold change near zero, reflecting higher variability and lower statistical power at low expression levels. In contrast, highly expressed genes show more stable fold-change estimates, with many exhibiting consistent upregulation in either tumor or normal tissue. The approximately symmetric distribution of fold changes around zero indicates balanced transcriptional shifts between the two conditions rather than a global expression bias.
+
+Overall, the MA plot confirms that the observed differential expression patterns are not driven solely by low-abundance genes and supports the robustness of the differential expression analysis.
+
+### Heatmap
+To further examine whether the most significant DE genes show consistent expression patterns across samples, we plotted a heatmap of the top 20 genes ranked by adjusted p-value.
+```{r}
+library(gplots)
+
+res_ordered <- res[order(res$adj.P.Val), ]
+top_n <- 20
+top_genes <- rownames(res_ordered)[1:top_n]
+
+mat <- logcpm_matrix[top_genes, ]
+cols_group <- c(
+  rep("ER+ Tumor", ncol(tcga_aligned)),
+  rep("Normal",    ncol(gtex_aligned))
+)
+heatmapColColors <- c("ER+ Tumor" = "red", "Normal" = "blue")[cols_group]
+heatmapCols <- colorRampPalette(c("yellow", "red"))(250)
+
+heatmap.2(
+  mat,
+  scale = "row",
+  trace = "none",
+  ColSideColors = heatmapColColors,
+  col = heatmapCols,
+  labCol = FALSE,
+  margins = c(5, 10),
+  density.info = "none",
+  key.xlab = "Row-scaled expression",
+  key.title = NA,
+  main = "Top 20 DE genes: ER+ Tumor vs Normal"
+)
+
+legend(
+  "topright",
+  legend = c("ER+ Tumor", "Normal"),
+  inset = c(-0.07, 0),
+  fill   = c("red", "blue"),
+  border = NA,
+  bty = "n",
+  xpd = TRUE
+)
+```
+
+Genes were ranked by adjusted p-value, and the top 20 were selected without applying an additional fold-change filter. Expression values were logCPM-transformed and scaled by row so that colors represent relative expression differences across samples for each gene.
+
+Despite gene labels initially being Ensembl gene IDs, the heatmap reveals a clear separation between ER+ tumor and normal breast samples. Samples largely cluster by condition, indicating that the most statistically significant differentially expressed genes consistently distinguish tumor from normal tissue. 
+
+Across these genes, expression patterns are highly coordinated. Many genes show elevated expression in ER+ tumor samples with lower expression in normal samples, while others display the opposite pattern. This consistent structure suggests that the observed differential expression reflects underlying biological differences rather than random variation.
+
+```{r}
+library(biomaRt)
+
+top_genes_stripped <- sub("\\..*", "", top_genes)
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+annot <- getBM(
+  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+  filters    = "ensembl_gene_id",
+  values     = top_genes_stripped,
+  mart       = ensembl
+)
+
+symbols <- annot$hgnc_symbol[match(top_genes_stripped, annot$ensembl_gene_id)]
+symbols[symbols == "" | is.na(symbols)] <- top_genes[symbols == "" | is.na(symbols)]
+
+rownames(mat) <- symbols
+
+heatmapCols <- colorRampPalette(c("yellow", "red"))(250)
+
+heatmap.2(
+  mat,
+  scale = "row",
+  trace = "none",
+  ColSideColors = heatmapColColors,
+  col = heatmapCols,
+  labCol = FALSE,
+  margins = c(5, 10),
+  density.info = "none",
+  key.xlab = "Row-scaled expression",
+  key.title = NA,
+  main = "Top 20 DE genes: ER+ Tumor vs Normal"
+)
+
+legend(
+  "topright",
+  inset = c(-0.07, 0),
+  legend = c("ER+ Tumor", "Normal"),
+  fill   = c("red", "blue"),
+  border = NA,
+  bty = "n",
+  xpd = TRUE
+)
+```
+
+To improve interpretability, Ensembl gene IDs were mapped to HGNC gene symbols using the biomaRt database. Version suffixes were removed from Ensembl IDs prior to annotation to ensure proper matching. For genes without an available HGNC symbol, the original Ensembl IDs were retained.
+
+Replacing Ensembl IDs with gene symbols does not alter the expression data or clustering structure of the heatmap; rather, it facilitates biological interpretation by allowing known genes and pathways to be more readily recognized. The persistence of distinct tumor–normal expression patterns after annotation confirms that the observed structure is driven by expression differences and not by labeling artifacts.
+
+Overall, the heatmap shows that these top DE genes separate ER+ tumor and normal samples into distinct clusters, indicating that the strongest DE signals are coherent across many samples rather than driven by a small subset of outliers and motivating subsequent pathway-level enrichment analyses to identify the biological programs underlying these gene-level differences.
+
+### Hallmark Gene Set Enrichment Analysis (GSEA)
+We first prepare gene identifiers for downstream Hallmark GSEA. The differential expression results `res` are indexed by Ensembl gene IDs (e.g., `ENSG00000...`), often including a version suffix (e.g., `.5`). Because many enrichment tools and gene set databases (including MSigDB collections accessed via `msigdbr`) commonly use Entrez gene IDs, we first map Ensembl IDs to Entrez IDs.
+
+Specifically, we remove the version suffix from Ensembl IDs (`sub("\\..*", "", ...)`) to ensure stable matching. We then query the Ensembl BioMart database (`biomaRt`) for an annotation table linking each Ensembl gene ID to its corresponding Entrez gene ID. The resulting mapping (`annot`) will be used to convert our ranked gene list into Entrez space before running Hallmark GSEA.
+```{r}
+library(biomaRt)
+library(clusterProfiler)
+library(msigdbr)
+library(dplyr)
+
+ensembl_ids <- sub("\\..*", "", rownames(res))
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+annot <- getBM(
+  attributes = c("ensembl_gene_id", "entrezgene_id"),
+  filters    = "ensembl_gene_id",
+  values     = ensembl_ids,
+  mart       = ensembl
+)
+
+head(annot)
+```
+
+Then we construct the **ranked gene list** required for preranked GSEA.
+1) We start from the limma output table `res` and create a version-stripped Ensembl ID column (`ensembl_nover`) so it matches the BioMart annotation keys.
+2) We then merge the differential expression results with the Ensembl→Entrez mapping table `annot`, and remove genes without an Entrez ID (`NA`), since Hallmark gene sets are indexed by Entrez IDs.
+3) Because multiple Ensembl IDs can map to the same Entrez gene ID, we collapse duplicates by keeping one representative row per Entrez ID. Here we keep the entry with the largest absolute t-statistic (i.e., strongest evidence of differential expression), using:
+- `arrange(entrezgene_id, desc(abs(t)))` to put the strongest row first within each Entrez ID, and
+- `distinct(entrezgene_id, .keep_all = TRUE)` to keep only that top row.
+4) Finally, we create the preranked vector `gene_list`, where:
+- the values are the limma t-statistics (`res_gsea$t`) representing signed strength of differential expression, and
+- the names are the corresponding Entrez gene IDs.
+We sort this vector in decreasing order so that genes most positively associated with the contrast appear at the top, which is the expected input format for GSEA.
+
+Note: the sign of the t-statistic follows the model contrast used in `topTable()`. In our analysis we extracted `coef = "groupNormal"`, so positive t (and positive logFC) indicates higher expression in Normal relative to ER+ Tumor, while negative values indicate higher expression in ER+ Tumor.
+```{r}
+res_gsea <- res
+res_gsea$ensembl_nover <- sub("\\..*", "", rownames(res_gsea))
+
+res_gsea <- merge(
+  res_gsea,
+  annot,
+  by.x = "ensembl_nover",
+  by.y = "ensembl_gene_id"
+)
+
+res_gsea <- res_gsea[!is.na(res_gsea$entrezgene_id), ]
+
+res_gsea <- res_gsea %>%
+  arrange(entrezgene_id, desc(abs(t))) %>%
+  distinct(entrezgene_id, .keep_all = TRUE)
+
+gene_list <- res_gsea$t
+names(gene_list) <- res_gsea$entrezgene_id
+
+gene_list <- sort(gene_list, decreasing = TRUE)
+```
+
+To interpret differential expression results at the pathway level, we performed Gene Set Enrichment Analysis (GSEA) using the MSigDB Hallmark gene sets. Unlike over-representation analysis that depends on an arbitrary DE cutoff, GSEA uses the entire ranked gene list (here ranked by the limma moderated t-statistic) to test whether genes from a pathway tend to accumulate near the top or bottom of the ranked list. We used the msigdbr package to retrieve Hallmark gene sets and ran clusterProfiler::GSEA with FDR control to identify pathways systematically enriched toward either the ER+ tumor side or the normal side.
+```{r}
+m_df <- msigdbr(species = "Homo sapiens", category = "H")
+
+hallmark_term2gene <- m_df %>%
+  dplyr::select(gs_name, entrez_gene) %>%
+  distinct()
+
+set.seed(42)
+gsea_hallmark <- GSEA(
+  geneList     = gene_list,
+  TERM2GENE    = hallmark_term2gene,
+  pvalueCutoff = 0.05,
+  verbose      = FALSE
+)
+
+gsea_hallmark_res <- as.data.frame(gsea_hallmark)
+head(gsea_hallmark_res)
+```
+Each row in the GSEA result corresponds to one Hallmark pathway. setSize is the number of genes from that pathway that overlap with our ranked gene list. The key statistic is the normalized enrichment score (NES), which summarizes the strength and direction of enrichment. Statistical significance is assessed after multiple-testing correction using p.adjust (BH-FDR). The core_enrichment column lists the “leading-edge” genes (Entrez IDs) that contribute most to the enrichment signal for each pathway and can be mapped back to gene symbols for follow-up interpretation.
+
+After performing Hallmark GSEA, we further categorized significantly enriched pathways based on the direction of enrichment. Because the ranked gene list was ordered by decreasing t-statistics for the (Normal − Tumor) contrast, pathways with negative normalized enrichment scores (NES < 0) are enriched toward genes upregulated in ER+ tumors, whereas pathways with positive NES (NES > 0) are enriched toward genes upregulated in normal breast tissue. We therefore separated Hallmark pathways into tumor-enriched and normal-enriched groups and ranked them by adjusted p-values to highlight the most strongly associated biological programs.
+```{r}
+gsea_hallmark_res <- as.data.frame(gsea_hallmark)
+
+# Tumor enriched (NES < 0)
+tumor_top <- gsea_hallmark_res[gsea_hallmark_res$NES < 0, ]
+tumor_top <- tumor_top[order(tumor_top$p.adjust), ]
+head(tumor_top[, c("ID","NES","p.adjust")], 10)
+
+# Normal enriched (NES > 0)
+normal_top <- gsea_hallmark_res[gsea_hallmark_res$NES > 0, ]
+normal_top <- normal_top[order(normal_top$p.adjust), ]
+head(normal_top[, c("ID","NES","p.adjust")], 10)
+```
+To summarize and compare the most prominent biological programs associated with ER+ tumors and normal breast tissue, we visualized the top Hallmark gene sets identified by Gene Set Enrichment Analysis (GSEA).
+
+Specifically, we selected the top enriched Hallmark pathways on each side—those with the most negative normalized enrichment scores (NES), indicating enrichment in ER+ tumor samples, and those with the most positive NES, indicating enrichment in normal tissue. These pathways were ranked by adjusted p-value, and the top ten from each group were displayed to highlight dominant, condition-specific transcriptional programs.
+```{r}
+library(ggplot2)
+
+top_show <- rbind(
+  head(tumor_top, 10),
+  head(normal_top, 10)
+)
+
+top_show$ID <- factor(top_show$ID, levels = top_show$ID[order(top_show$NES)])
+
+ggplot(top_show, aes(x = ID, y = NES)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Hallmark GSEA (ER+ Tumor vs Normal)",
+       x = NULL, y = "NES (negative = ER+ Tumor enriched)") +
+  theme_classic(base_size = 12)
+```
+
+The bar plot illustrates a clear functional contrast between ER+ tumors and normal breast tissue at the pathway level. Hallmark gene sets with strongly negative NES values are enriched in ER+ tumors, whereas those with positive NES values are enriched in normal samples.
+
+ER+ tumors show strong enrichment of cell cycle–related and proliferative pathways, including G2M checkpoint, E2F targets, and MYC targets, indicating increased cell division and dysregulated growth control. In addition, pathways such as mTORC1 signaling, glycolysis, and oxidative phosphorylation suggest metabolic reprogramming that supports rapid proliferation and biosynthetic demand in tumor cells. The enrichment of estrogen response (early and late) pathways further reflects the hormone-driven nature of ER+ breast cancer.
+
+In contrast, normal breast tissue is enriched for pathways related to tissue structure and homeostasis, including myogenesis, apical junction, and adipogenesis, which are consistent with normal differentiation and cellular organization. Enrichment of TNFα signaling via NF-κB, hypoxia, and immune-related signaling suggests intact stress-response and immune surveillance mechanisms in non-tumor tissue.
+
+Overall, these results demonstrate that ER+ tumors are characterized by heightened proliferative, metabolic, and hormone-responsive programs, while normal tissue exhibits pathways associated with structural integrity, differentiation, and physiological signaling. This pathway-level analysis complements the gene-level differential expression results and highlights coordinated biological processes underlying tumor–normal differences.
+
+We also visualize each GSEA enrichment plot that shows how genes from a specific Hallmark gene set are distributed along the ranked gene list. The green curve represents the running enrichment score (ES), black vertical bars indicate the positions of genes from the gene set in the ranked list, and the bottom panel shows the ranking metric used to order genes. A negative normalized enrichment score (NES) indicates enrichment toward the ER+ tumor end of the ranked list, while a positive NES indicates enrichment toward the normal tissue end.
+```{r}
+library(enrichplot)
+
+gseaplot2(gsea_hallmark, "HALLMARK_G2M_CHECKPOINT", title ="G2M checkpoint" )
+gseaplot2(gsea_hallmark, "HALLMARK_E2F_TARGETS", title = "E2F targets")
+gseaplot2(gsea_hallmark, "HALLMARK_ESTROGEN_RESPONSE_EARLY", title = "estrogen response early")
+```
+
+**HALLMARK_G2M_CHECKPOINT**
+The G2M checkpoint gene set shows strong negative enrichment (NES < 0), indicating that G2M-related genes are concentrated toward the ER+ tumor end of the ranked gene list. The running enrichment score reaches its most negative value near the tumor-associated genes, with a high density of gene set members appearing late in the ranked list.
+
+Biologically, this suggests enhanced cell cycle progression and increased proliferative activity in ER+ tumor samples. Dysregulation of the G2/M checkpoint is a hallmark of cancer, reflecting uncontrolled cell division and genomic instability, which are consistent with aggressive tumor growth.
+
+**HALLMARK_E2F_TARGETS**
+The E2F target gene set also exhibits strong negative enrichment, with most E2F-regulated genes clustered toward the ER+ tumor end of the ranked list. The smooth and sustained decrease in the running enrichment score indicates coordinated upregulation of E2F target genes in tumor samples.
+
+E2F transcription factors play a central role in regulating genes required for DNA replication and cell cycle progression. Enrichment of E2F targets in ER+ tumors suggests activation of proliferative transcriptional programs, reinforcing the observation that tumor samples are characterized by heightened cell cycle activity.
+
+**HALLMARK_ESTROGEN_RESPONSE_EARLY**
+The estrogen response early gene set shows significant negative enrichment, indicating that estrogen-responsive genes are preferentially upregulated in ER+ tumor samples. Gene set members are broadly distributed but skewed toward the tumor-associated portion of the ranked list, producing a negative enrichment score.
+
+This pattern is biologically consistent with the estrogen receptor–positive (ER+) subtype of breast cancer, where estrogen signaling is a primary driver of tumor growth. Enrichment of early estrogen response genes reflects active hormone-dependent transcriptional regulation in ER+ tumors.
