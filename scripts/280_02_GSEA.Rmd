@@ -93,9 +93,6 @@ library_sizes <- colSums(final_counts_filtered)
 
 cpm_matrix <- t(t(final_counts_filtered) / library_sizes) * 1e6
 logcpm_matrix <- log2(cpm_matrix + 1)
-
-write.table(logcpm_matrix, file = "logcpm_matrix.txt",
-  sep = "\t", quote = FALSE, col.names = NA)
 ```
 
 ```{r}
@@ -539,3 +536,41 @@ E2F transcription factors play a central role in regulating genes required for D
 The estrogen response early gene set shows significant negative enrichment, indicating that estrogen-responsive genes are preferentially upregulated in ER+ tumor samples. Gene set members are broadly distributed but skewed toward the tumor-associated portion of the ranked list, producing a negative enrichment score.
 
 This pattern is biologically consistent with the estrogen receptor–positive (ER+) subtype of breast cancer, where estrogen signaling is a primary driver of tumor growth. Enrichment of early estrogen response genes reflects active hormone-dependent transcriptional regulation in ER+ tumors.
+
+
+## step4 Prepare expression datasets for PANDA network analysis
+Current expression data is using version-stripped Ensembl gene names. To match gene names in the motif-TF and protein-protein interaction files, we need to remove the versions.
+```{r}
+# Remove Ensembl gene name versions
+rownames(logcpm_matrix) <- sub("\\..*$", "", rownames(logcpm_matrix))
+```
+
+We will construct separate networks for cancer (ER+) data from TCGA-BRCA and normal breast tissue data from GTEx. To achieve this goal, we outputed two expression datasets that can be used by PANDA analysis directly.
+```{r}
+# Separate cancer (ER+) and normal sets (filtered & normalized)
+
+n_tcga <- ncol(tcga_aligned)
+n_gtex <- ncol(gtex_aligned)
+
+sample_group <- factor(
+  c(
+    rep("Tumor",  n_tcga),
+    rep("Normal", n_gtex)
+  )
+)
+
+table(sample_group)
+
+expr_tumor <- logcpm_matrix[, sample_group == "Tumor"]
+expr_normal <- logcpm_matrix[, sample_group == "Normal"]
+
+dim(expr_tumor)
+dim(expr_normal)
+
+write.table(expr_tumor, file = "output/tcga_brca_expr_ERpos_tumor_filtered_logcpm.txt",
+  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+
+write.table(expr_normal, file = "output/gtex_breast_expr_normal_filtered_logcpm.txt",
+  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+```
+
