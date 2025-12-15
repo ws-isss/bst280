@@ -93,6 +93,9 @@ library_sizes <- colSums(final_counts_filtered)
 
 cpm_matrix <- t(t(final_counts_filtered) / library_sizes) * 1e6
 logcpm_matrix <- log2(cpm_matrix + 1)
+
+write.table(logcpm_matrix, file = "logcpm_matrix.txt",
+  sep = "\t", quote = FALSE, col.names = NA)
 ```
 
 ```{r}
