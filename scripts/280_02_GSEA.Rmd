@@ -538,7 +538,9 @@ The estrogen response early gene set shows significant negative enrichment, indi
 This pattern is biologically consistent with the estrogen receptor–positive (ER+) subtype of breast cancer, where estrogen signaling is a primary driver of tumor growth. Enrichment of early estrogen response genes reflects active hormone-dependent transcriptional regulation in ER+ tumors.
 
 
-## step4 Prepare expression datasets for PANDA network analysis
+## step4 PANDA network analysis
+
+### Prepare expression datasets for PANDA network analysis
 Current expression data is using version-stripped Ensembl gene names. To match gene names in the motif-TF and protein-protein interaction files, we need to remove the versions.
 ```{r}
 # Remove Ensembl gene name versions
@@ -568,9 +570,84 @@ dim(expr_tumor)
 dim(expr_normal)
 
 write.table(expr_tumor, file = "output/tcga_brca_expr_ERpos_tumor_filtered_logcpm.txt",
-  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+            sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
 
 write.table(expr_normal, file = "output/gtex_breast_expr_normal_filtered_logcpm.txt",
-  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+            sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
 ```
 
+We conducted PANDA analysis to generate two networks for tumor (ER+) samples and normal samples by command lines. 
+
+
+### Visualizing PANDA output networks through Cytoscape
+Then, we want to visualize the output networks through Cytoscape for more information. We would combine the two output tables and select top differential edges.
+
+```{r}
+library(dplyr)
+
+# Load output data
+panda_tumor  <- read.delim("output/output_panda_brca_ERpos_tumor_997TFs.txt",
+                           stringsAsFactors = FALSE, sep = "")
+
+panda_normal <- read.delim("output/output_panda_breast_normal_997TFs.txt", 
+                           stringsAsFactors = FALSE, sep = "")
+
+colnames(panda_tumor)  <- c("TF", "Gene", "Motif", "Force_tumor")
+colnames(panda_normal) <- c("TF", "Gene", "Motif", "Force_normal")
+
+
+# Merge the two output network data by TFs and genes
+panda_merged <- inner_join(
+  panda_tumor[, c("TF", "Gene", "Motif", "Force_tumor")],
+  panda_normal[, c("TF", "Gene", "Force_normal")],
+  by = c("TF", "Gene")
+)
+dim(panda_merged)
+
+# Convert motif to 0/1 (currently 0.0/1.0)
+panda_merged$Motif <- as.integer(panda_merged$Motif)
+
+# Compute the force differences between tumor and normal networks for each TF-gene pair
+panda_merged <- panda_merged %>%
+  mutate(Diff_Force = Force_tumor - Force_normal)
+
+
+# Keep top 1500 differential force edges for clearer visualization and include some edges with negative difference in weights
+top_n <- 1500
+
+panda_diff <- panda_merged %>%
+  arrange(desc(abs(Diff_Force))) %>%
+  slice(1:top_n)
+
+sum(panda_diff$Diff_Force < 0, na.rm = TRUE)
+ 
+# Export the data for Cytoscape input
+write.table(panda_diff, file = "output/panda_ERpos_tumor_vs_normal_edges.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+For current network visualization constructed with 1500 top differential edges, there are only 5 edges with negative edge weight differences. Hence, The strongest regulatory rewiring in ER+ BRCA is dominated by gained tumor-specific TF–gene interactions while loss of regulation is present but occurs at lower magnitude and is therefore underrepresented among the highest-ranked edges. 
+
+The large number of edges and nodes (317) result in a network with substantial overlapping. We construct separate PANDA networks for gained and lost regulation by selecting the strongest positive and negative differential TF–gene interactions between ER+ breast tumors and normal breast tissue.
+
+We would choose the top 500 positive and top 100 negative differential TF-gene egdes. Equalizing the number of positive and negative edges would require including weaker regulatory losses while excluding stronger gains, which would bias the network away from the most biologically significant interactions.
+
+```{r}
+n_pos <- 500
+n_neg <- 100 
+
+panda_pos <- panda_merged %>%
+  filter(Diff_Force > 0) %>%
+  arrange(desc(Diff_Force)) %>%
+  slice_head(n = n_pos)
+
+write.table(panda_pos, file = "output/panda_ERpos_tumor_vs_normal_toppos_edges.txt",
+            sep = "\t", row.names = FALSE, quote = FALSE)
+
+panda_neg <- panda_merged %>%
+  filter(Diff_Force < 0) %>%
+  arrange(Diff_Force) %>%   
+  slice_head(n = n_neg)
+
+write.table(panda_neg, file = "output/panda_ERpos_tumor_vs_normal_topneg_edges.txt",
+            sep = "\t", row.names = FALSE, quote = FALSE)
+```
