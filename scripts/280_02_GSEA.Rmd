@@ -2,7 +2,9 @@
 title: "BST280"
 author: "group6"
 date: "2025-12-13"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ## step1 load data & Preprocessing
@@ -621,7 +623,7 @@ top_genes_normal <- names(sort(gene_vars_normal, decreasing = TRUE))[1:n_genes]
 top_genes_tumor <- names(sort(gene_vars_tumor, decreasing = TRUE))[1:n_genes]
 
 expr_normal_top <- expr_normal[top_genes_normal, ]
-expr_tumor_top <- expr_tumor[top_genes_tumor3, ]
+expr_tumor_top <- expr_tumor[top_genes_tumor, ]
 ```
 
 
@@ -732,8 +734,6 @@ ppi_use_tumor <- ppi[
 pandaNormal <- panda(motif_use_normal, expr_clean_normal, ppi_use_normal, mode="intersection")
 pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="intersection")
 
-panda_results_normal <- pandaPy(expr_file = "../output/gtex_breast_expr_normal_filtered_logcpm.txt" , motif_file = "../data/motif_997TFs_ensembl.txt", ppi_file = "../data/ppi_997TFs.txt", modeProcess="legacy", remove_missing = TRUE)
-
 ```
 
 We conducted PANDA analysis to generate two networks for tumor (ER+) samples and normal samples by command lines. 
@@ -744,10 +744,10 @@ Then, we want to visualize the output networks through Cytoscape for more inform
 library(dplyr)
 
 # Load output data
-panda_tumor  <- read.delim("output/output_panda_brca_ERpos_tumor_997TFs.txt",
+panda_tumor  <- read.delim("../output/output_panda_brca_ERpos_tumor_997TFs.txt",
                            stringsAsFactors = FALSE, sep = "")
 
-panda_normal <- read.delim("output/output_panda_breast_normal_997TFs.txt", 
+panda_normal <- read.delim("../output/output_panda_breast_normal_997TFs.txt", 
                            stringsAsFactors = FALSE, sep = "")
 
 colnames(panda_tumor)  <- c("TF", "Gene", "Motif", "Force_tumor")
@@ -780,7 +780,7 @@ panda_diff <- panda_merged %>%
 sum(panda_diff$Diff_Force < 0, na.rm = TRUE)
  
 # Export the data for Cytoscape input
-write.table(panda_diff, file = "output/panda_ERpos_tumor_vs_normal_edges.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(panda_diff, file = "../output/panda_ERpos_tumor_vs_normal_edges.txt", sep = "\t", quote = FALSE, row.names = FALSE)
 ```
 
 For current network visualization constructed with 1500 top differential edges, there are only 5 edges with negative edge weight differences. Hence, The strongest regulatory rewiring in ER+ BRCA is dominated by gained tumor-specific TF–gene interactions while loss of regulation is present but occurs at lower magnitude and is therefore underrepresented among the highest-ranked edges. 
@@ -798,7 +798,7 @@ panda_pos <- panda_merged %>%
   arrange(desc(Diff_Force)) %>%
   slice_head(n = n_pos)
 
-write.table(panda_pos, file = "output/panda_ERpos_tumor_vs_normal_toppos_edges.txt",
+write.table(panda_pos, file = "../output/panda_ERpos_tumor_vs_normal_toppos_edges.txt",
             sep = "\t", row.names = FALSE, quote = FALSE)
 
 panda_neg <- panda_merged %>%
@@ -806,6 +806,212 @@ panda_neg <- panda_merged %>%
   arrange(Diff_Force) %>%   
   slice_head(n = n_neg)
 
-write.table(panda_neg, file = "output/panda_ERpos_tumor_vs_normal_topneg_edges.txt",
+write.table(panda_neg, file = "../output/panda_ERpos_tumor_vs_normal_topneg_edges.txt",
             sep = "\t", row.names = FALSE, quote = FALSE)
+```
+`panda_pos` captures TF–gene regulatory edges with increased strength in tumor relative to normal, whereas `panda_neg` captures edges that are weakened in tumor and stronger in normal.
+<!--```{R}
+tf_out_tumor  <- calcDegree(pandaTumor,  type = "tf")
+tf_out_normal <- calcDegree(pandaNormal, type = "tf")
+
+gene_in_tumor  <- calcDegree(pandaTumor,  type = "gene")
+gene_in_normal <- calcDegree(pandaNormal, type = "gene")
+
+diff_gene <- calcDegreeDifference(
+  pandaTumor,
+  pandaNormal,
+  type = "gene"
+)
+
+head(gene_in_diff)
+```-->
+
+```{r}
+# all this shit is to pass the condition in calcDegree
+panda_tumor_df <- as.data.frame(panda_tumor, stringsAsFactors = FALSE)
+panda_normal_df <- as.data.frame(panda_normal, stringsAsFactors = FALSE)
+
+panda_tumor_df$Force_tumor <- as.numeric(panda_tumor_df$Force_tumor)
+panda_normal_df$Force_normal <- as.numeric(panda_normal_df$Force_normal)
+
+mat_tumor <- xtabs(
+  Force_tumor ~ TF + Gene,
+  data = panda_tumor_df 
+)
+
+mat_normal <- xtabs(
+  Force_normal ~ TF + Gene,
+  data = panda_normal_df
+)
+
+mat_tumor <- as.matrix(mat_tumor)
+mat_normal <- as.matrix(mat_normal)
+attr(mat_tumor, "class") <- "matrix"
+attr(mat_normal, "class") <- "matrix"
+
+# in degree, out degree and difference in degree
+tf_out_tumor  <- calcDegree(mat_tumor,  type = "tf")
+tf_out_normal <- calcDegree(mat_normal, type = "tf")
+
+gene_in_tumor  <- calcDegree(mat_tumor,  type = "gene")
+gene_in_normal <- calcDegree(mat_normal, type = "gene")
+
+gene_in_diff <- calcDegreeDifference(
+  mat_tumor,
+  mat_normal,
+  type = "gene"
+)
+
+head(gene_in_diff)
+
+# match Ensembl id with gene name
+library(org.Hs.eg.db)
+
+gene_symbols <- mapIds(
+  org.Hs.eg.db,
+  keys = names(gene_in_diff),
+  column = "SYMBOL",
+  keytype = "ENSEMBL",
+  multiVals = "first"
+)
+
+gene_in_diff_sym <- gene_in_diff
+names(gene_in_diff_sym) <- gene_symbols
+
+#more shit just to make the code work
+gene_in_diff_sym <- gene_in_diff_sym[!is.na(names(gene_in_diff_sym))]
+gene_in_diff_sym <- sort(gene_in_diff_sym, decreasing = TRUE)
+
+library(dplyr)
+
+df <- data.frame(gene = names(gene_in_diff_sym),
+                 score = as.numeric(gene_in_diff_sym),
+                 stringsAsFactors = FALSE)
+
+df_unique <- df %>% group_by(gene) %>% summarise(score = score[which.max(abs(score))], .groups="drop")
+
+gene_stats <- df_unique$score
+names(gene_stats) <- df_unique$gene
+gene_stats <- sort(gene_stats, decreasing = TRUE)
+
+head(gene_stats)
+```
+
+```{r}
+#actual fgsea analysis
+system("curl -O  https://netzoo.s3.us-east-2.amazonaws.com/netZooR/tutorial_datasets/c2.cp.kegg.v7.0.symbols.gmt")
+pathways <- gmtPathways("./c2.cp.kegg.v7.0.symbols.gmt")
+
+fgseaRes <- fgsea(pathways, gene_stats, minSize=15, maxSize=500, nperm=1000)
+
+fgseaMulti <- fgseaMultilevel(pathways, gene_stats,  minSize=15, maxSize=500)
+
+head(fgseaRes)
+
+head(fgseaMulti)
+```
+
+
+```{r}
+# Subset to pathways with FDR < 0.05
+sig <- fgseaRes[fgseaRes$padj < 0.05,]
+# Get the top 10 significant pathways enriched for genes having lower targeting in LCLs  
+sig[order(sig$NES)[1:10],]
+```
+
+```{r}
+dat <- data.frame(fgseaRes)
+# Settings
+fdrcut <- 0.05 # FDR cut-off to use as output for significant signatures
+dencol_neg <- "blue" # bubble plot color for negative ES
+dencol_pos <- "red" # bubble plot color for positive ES
+signnamelength <- 4 # set to remove prefix from signature names (2 for "GO", 4 for "KEGG", 8 for "REACTOME")
+asp <- 3 # aspect ratio of bubble plot
+charcut <- 100 # cut signature name in heatmap to this nr of characters
+# Make signature names more readable
+a <- as.character(dat$pathway) # 'a' is a great variable name to substitute row names with something more readable
+for (j in 1:length(a)){
+  a[j] <- substr(a[j], signnamelength+2, nchar(a[j]))
+}
+a <- tolower(a) # convert to lower case (you may want to comment this out, it really depends on what signatures you are looking at, c6 signatures contain gene names, and converting those to lower case may be confusing)
+for (j in 1:length(a)){
+  if(nchar(a[j])>charcut) { a[j] <- paste(substr(a[j], 1, charcut), "...", sep=" ")}
+} # cut signature names that have more characters than charcut, and add "..."
+a <- gsub("_", " ", a)
+dat$NAME <- a
+# Determine what signatures to plot (based on FDR cut)
+dat2 <- dat[dat[,"padj"]<fdrcut,]
+dat2 <- dat2[order(dat2[,"padj"]),] 
+dat2$signature <- factor(dat2$NAME, rev(as.character(dat2$NAME)))
+# Determine what labels to color
+sign_neg <- which(dat2[,"NES"]<0)
+sign_pos <- which(dat2[,"NES"]>0)
+# Color labels
+signcol <- rep(NA, length(dat2$signature))
+signcol[sign_neg] <- dencol_neg # text color of negative signatures
+signcol[sign_pos] <- dencol_pos # text color of positive signatures
+signcol <- rev(signcol) # need to revert vector of colors, because ggplot starts plotting these from below
+# Plot bubble plot
+g<-ggplot(dat2, aes(x=padj,y=signature,size=size))
+g+geom_point(aes(fill=NES), shape=21, colour="white")+
+  theme_bw()+ # white background, needs to be placed before the "signcol" line
+  xlim(0,fdrcut)+
+  scale_size_area(max_size=10,guide="none")+
+  scale_fill_gradient2(low=dencol_neg, high=dencol_pos)+
+  theme(axis.text.y = element_text(colour=signcol))+
+  theme(aspect.ratio=asp, axis.title.y=element_blank()) # test aspect.ratio
+
+```
+
+```{r}
+# Subset to pathways with FDR < 0.05
+sig_multi <- fgseaMulti[fgseaMulti$padj < 0.05,]
+# Get the top 10 significant pathways enriched for genes having lower targeting in LCLs  
+sig_multi[order(sig$NES)[1:10],]
+
+intersect(sig_multi$pathway, sig$pathway)
+```
+
+```{r}
+dat <- data.frame(fgseaMulti)
+# Settings
+fdrcut <- 0.05 # FDR cut-off to use as output for significant signatures
+dencol_neg <- "blue" # bubble plot color for negative ES
+dencol_pos <- "red" # bubble plot color for positive ES
+signnamelength <- 4 # set to remove prefix from signature names (2 for "GO", 4 for "KEGG", 8 for "REACTOME")
+asp <- 3 # aspect ratio of bubble plot
+charcut <- 100 # cut signature name in heatmap to this nr of characters
+# Make signature names more readable
+a <- as.character(dat$pathway) # 'a' is a great variable name to substitute row names with something more readable
+for (j in 1:length(a)){
+  a[j] <- substr(a[j], signnamelength+2, nchar(a[j]))
+}
+a <- tolower(a) # convert to lower case (you may want to comment this out, it really depends on what signatures you are looking at, c6 signatures contain gene names, and converting those to lower case may be confusing)
+for (j in 1:length(a)){
+  if(nchar(a[j])>charcut) { a[j] <- paste(substr(a[j], 1, charcut), "...", sep=" ")}
+} # cut signature names that have more characters than charcut, and add "..."
+a <- gsub("_", " ", a)
+dat$NAME <- a
+# Determine what signatures to plot (based on FDR cut)
+dat2 <- dat[dat[,"padj"]<fdrcut,]
+dat2 <- dat2[order(dat2[,"padj"]),] 
+dat2$signature <- factor(dat2$NAME, rev(as.character(dat2$NAME)))
+# Determine what labels to color
+sign_neg <- which(dat2[,"NES"]<0)
+sign_pos <- which(dat2[,"NES"]>0)
+# Color labels
+signcol <- rep(NA, length(dat2$signature))
+signcol[sign_neg] <- dencol_neg # text color of negative signatures
+signcol[sign_pos] <- dencol_pos # text color of positive signatures
+signcol <- rev(signcol) # need to revert vector of colors, because ggplot starts plotting these from below
+# Plot bubble plot
+g<-ggplot(dat2, aes(x=padj,y=signature,size=size))
+g+geom_point(aes(fill=NES), shape=21, colour="white")+
+  theme_bw()+ # white background, needs to be placed before the "signcol" line
+  xlim(0,fdrcut)+
+  scale_size_area(max_size=10,guide="none")+
+  scale_fill_gradient2(low=dencol_neg, high=dencol_pos)+
+  theme(axis.text.y = element_text(colour=signcol))+
+  theme(aspect.ratio=asp, axis.title.y=element_blank()) # test aspect.ratio
+
 ```
