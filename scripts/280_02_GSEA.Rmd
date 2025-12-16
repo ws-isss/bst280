@@ -10,7 +10,7 @@ output: html_document
 # 1. Load Library
 # install.packages("BiocManager")
 # BiocManager::install("SummarizedExperiment")
-#BiocManager::install("edgeR")
+# BiocManager::install("edgeR")
 library(SummarizedExperiment)
 library(ggplot2)
 library(ggrepel)
@@ -20,19 +20,19 @@ library(limma)
 
 ```{r}
 # 1. Load Data
-tcga_data <- readRDS(file.path("data","tcga_brca.rds"))
+tcga_data <- readRDS(file.path("../data/tcga_brca.rds"))
 tcga_counts <- assay(tcga_data)
 tcga_meta <- as.data.frame(colData(tcga_data))
 
-write.csv(tcga_counts, file.path("output","TCGA_BRCA_Counts.csv"), row.names = TRUE)
-write.csv(tcga_meta, file.path("output","TCGA_BRCA_Metadata.csv"), row.names = TRUE)
+write.csv(tcga_counts, file.path("../output/TCGA_BRCA_Counts.csv"), row.names = TRUE)
+write.csv(tcga_meta, file.path("../output/TCGA_BRCA_Metadata.csv"), row.names = TRUE)
 
-gtex_data <- readRDS(file.path("data","gtex_breast.rds"))
+gtex_data <- readRDS(file.path("../data/gtex_breast.rds"))
 gtex_counts <- assay(gtex_data)
 gtex_meta <- as.data.frame(colData(gtex_data))
 
-write.csv(gtex_counts, file.path("output","GTEx_Breast_Counts.csv"), row.names = TRUE)
-write.csv(gtex_meta, file.path("output","GTEx_Breast_Metadata.csv"), row.names = TRUE)
+write.csv(gtex_counts, file.path("../output/GTEx_Breast_Counts.csv"), row.names = TRUE)
+write.csv(gtex_meta, file.path("../output/GTEx_Breast_Metadata.csv"), row.names = TRUE)
 ```
 
 ```{r}
@@ -62,7 +62,7 @@ tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
 gtex_aligned <- gtex_counts[common_genes, ]
 
 final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
-write.csv(final_counts_matrix, file.path("output","Final_ERpos_Tumor_vs_Normal_Counts.csv"))
+write.csv(final_counts_matrix, file.path("../output/Final_ERpos_Tumor_vs_Normal_Counts.csv"))
 print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
 ```
 
@@ -81,7 +81,7 @@ final_counts_filtered <- final_counts_matrix[keep, ]
 print(paste("Total genes AFTER filtering:", nrow(final_counts_filtered)))
 print(paste("Removed:", nrow(final_counts_matrix) - nrow(final_counts_filtered), "noisy genes."))
 
-write.csv(final_counts_filtered, file.path("output", "Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
+write.csv(final_counts_filtered, file.path("../output/Filtered_Final_ERpos_Tumor_vs_Normal_Counts.csv"), row.names = TRUE)
 
 dim(final_counts_filtered)
 ```
@@ -342,6 +342,7 @@ Despite gene labels initially being Ensembl gene IDs, the heatmap reveals a clea
 Across these genes, expression patterns are highly coordinated. Many genes show elevated expression in ER+ tumor samples with lower expression in normal samples, while others display the opposite pattern. This consistent structure suggests that the observed differential expression reflects underlying biological differences rather than random variation.
 
 ```{r}
+
 library(biomaRt)
 
 top_genes_stripped <- sub("\\..*", "", top_genes)
@@ -414,16 +415,16 @@ annot <- getBM(
 head(annot)
 ```
 
-Then we construct the **ranked gene list** required for preranked GSEA.
-1) We start from the limma output table `res` and create a version-stripped Ensembl ID column (`ensembl_nover`) so it matches the BioMart annotation keys.
-2) We then merge the differential expression results with the Ensembl→Entrez mapping table `annot`, and remove genes without an Entrez ID (`NA`), since Hallmark gene sets are indexed by Entrez IDs.
+Then we construct the **ranked gene list** required for preranked GSEA.\\
+1) We start from the limma output table `res` and create a version-stripped Ensembl ID column (`ensembl_nover`) so it matches the BioMart annotation keys.\\
+2) We then merge the differential expression results with the Ensembl→Entrez mapping table `annot`, and remove genes without an Entrez ID (`NA`), since Hallmark gene sets are indexed by Entrez IDs.\\
 3) Because multiple Ensembl IDs can map to the same Entrez gene ID, we collapse duplicates by keeping one representative row per Entrez ID. Here we keep the entry with the largest absolute t-statistic (i.e., strongest evidence of differential expression), using:
 - `arrange(entrezgene_id, desc(abs(t)))` to put the strongest row first within each Entrez ID, and
-- `distinct(entrezgene_id, .keep_all = TRUE)` to keep only that top row.
+- `distinct(entrezgene_id, .keep_all = TRUE)` to keep only that top row.\\
 4) Finally, we create the preranked vector `gene_list`, where:
 - the values are the limma t-statistics (`res_gsea$t`) representing signed strength of differential expression, and
-- the names are the corresponding Entrez gene IDs.
-We sort this vector in decreasing order so that genes most positively associated with the contrast appear at the top, which is the expected input format for GSEA.
+- the names are the corresponding Entrez gene IDs.\\
+We sort this vector in decreasing order so that genes most positively associated with the contrast appear at the top, which is the expected input format for GSEA.\\
 
 Note: the sign of the t-statistic follows the model contrast used in `topTable()`. In our analysis we extracted `coef = "groupNormal"`, so positive t (and positive logFC) indicates higher expression in Normal relative to ER+ Tumor, while negative values indicate higher expression in ER+ Tumor.
 ```{r}
@@ -569,16 +570,173 @@ expr_normal <- logcpm_matrix[, sample_group == "Normal"]
 dim(expr_tumor)
 dim(expr_normal)
 
-write.table(expr_tumor, file = "output/tcga_brca_expr_ERpos_tumor_filtered_logcpm.txt",
-            sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
 
-write.table(expr_normal, file = "output/gtex_breast_expr_normal_filtered_logcpm.txt",
-            sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+write.table(expr_tumor, file = "../output/tcga_brca_expr_ERpos_tumor_filtered_logcpm.txt",
+  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+
+write.table(expr_normal, file = "../output/gtex_breast_expr_normal_filtered_logcpm.txt",
+  sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+
+```
+## Step 5 PANDA Network Analysis
+Now, we will do a PANDA network analysis to calculate the difference in transcriptions factors regulations.
+
+```{r}
+#install and load necessary packages
+
+# install.packages("devtools")
+library(devtools)
+# devtools::install_github("netZoo/netZooR", build_vignettes = FALSE)
+# eNamespace("BiocManager", quietly = TRUE)  
+#    install.packages("BiocManager",repos = "http://cran.us.r-project.org")  
+# BiocManager::install("fgsea")   
+#install.packages("ggplot2")  
+#install.packages("reshape2")
+#install.packages("visNetwork")
+
+library(tibble)
+library(netZooR)
+library(fgsea)
+library(ggplot2)
+library(reshape2)
+library('visNetwork') # for network visualization
+```
+
+
+```{r}
+# load ppi and motif data
+ppi <- read.table("../data/ppi_997TFs.txt")
+motif <- read.table("../data/motif_997TFs_ensembl.txt")
+gene_name <- read.table("../data/motif_997TFs_geneNames.txt")
+
+expr_normal <- as.data.frame(expr_normal)
+expr_tumor <- as.data.frame(expr_tumor)
+
+#select the top genes with most variance
+gene_vars_normal <- apply(expr_normal, 1, var)
+gene_vars_tumor <- apply(expr_tumor, 1, var)
+n_genes <- 10000
+
+top_genes_normal <- names(sort(gene_vars_normal, decreasing = TRUE))[1:n_genes]
+top_genes_tumor <- names(sort(gene_vars_tumor, decreasing = TRUE))[1:n_genes]
+
+expr_normal_top <- expr_normal[top_genes_normal, ]
+expr_tumor_top <- expr_tumor[top_genes_tumor3, ]
+```
+
+
+```{r}
+
+#mapping ensemble names to gene names
+
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+
+ens_ids_normal <- rownames(expr_normal_top)
+
+mapping_normal <- mapIds(org.Hs.eg.db,
+                  keys = ens_ids_normal,
+                  column = "SYMBOL",
+                  keytype = "ENSEMBL",
+                  multiVals = "first")
+
+expr_normal_top$Symbol <- mapping_normal
+
+expr_clean_normal <- expr_normal_top[!is.na(expr_normal_top$Symbol), ]
+
+expr_clean_normal <- expr_clean_normal[!duplicated(expr_clean_normal$Symbol), ]
+
+rownames(expr_clean_normal) <- expr_clean_normal$Symbol
+expr_clean_normal$Symbol <- NULL 
+
+ens_ids_tumor <- rownames(expr_tumor_top)
+
+mapping_tumor <- mapIds(org.Hs.eg.db,
+                  keys = ens_ids_tumor,
+                  column = "SYMBOL",
+                  keytype = "ENSEMBL",
+                  multiVals = "first")
+
+expr_tumor_top$Symbol <- mapping_tumor
+
+expr_clean_tumor <- expr_tumor_top[!is.na(expr_tumor_top$Symbol), ]
+
+expr_clean_tumor <- expr_clean_tumor[!duplicated(expr_clean_tumor$Symbol), ]
+
+rownames(expr_clean_tumor) <- expr_clean_tumor$Symbol
+expr_clean_tumor$Symbol <- NULL 
+
+head(rownames(expr_clean_normal))
+head(rownames(expr_clean_tumor))
+
+```
+
+```{r}
+#select TFs of interest in motifs and ppis
+genes_use <- intersect(
+  rownames(expr_clean_normal),
+  rownames(expr_clean_tumor)
+)
+
+
+motif$gene_symbol <- mapIds(
+  org.Hs.eg.db,
+  keys = motif$V2,
+  keytype = "ENSEMBL",
+  column = "SYMBOL",
+  multiVals = "first"
+)
+
+motif_sym <- motif[!is.na(motif$gene_symbol), ]
+motif_sym <- motif_sym[, c("V1", "gene_symbol", "V3")]
+
+motif_use_normal <- motif[
+  motif$gene_symbol %in% genes_use &
+  motif$V1 %in% rownames(expr_clean_normal),
+]
+
+motif_use_normal <- data.frame(
+  tf     = motif_use_normal$V1,
+  gene   = motif_use_normal$gene_symbol,  # ← 用 SYMBOL
+  weight = motif_use_normal$V3
+)
+
+tfs_use_normal <- unique(motif_use_normal$tf)
+
+ppi_use_normal <- ppi[
+  ppi$V1 %in% tfs_use_normal &
+  ppi$V2 %in% tfs_use_normal,
+]
+
+motif_use_tumor <- motif[
+  motif$gene_symbol %in% genes_use &
+  motif$V1 %in% rownames(expr_clean_tumor),
+]
+
+motif_use_tumor <- data.frame(
+  tf     = motif_use_tumor$V1,
+  gene   = motif_use_tumor$gene_symbol,  # ← 用 SYMBOL
+  weight = motif_use_tumor$V3
+)
+
+tfs_use_tumor <- unique(motif_use_tumor$tf)
+
+ppi_use_tumor <- ppi[
+  ppi$V1 %in% tfs_use_tumor &
+  ppi$V2 %in% tfs_use_tumor,
+]
+```
+
+```{r}
+pandaNormal <- panda(motif_use_normal, expr_clean_normal, ppi_use_normal, mode="intersection")
+pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="intersection")
+
+panda_results_normal <- pandaPy(expr_file = "../output/gtex_breast_expr_normal_filtered_logcpm.txt" , motif_file = "../data/motif_997TFs_ensembl.txt", ppi_file = "../data/ppi_997TFs.txt", modeProcess="legacy", remove_missing = TRUE)
+
 ```
 
 We conducted PANDA analysis to generate two networks for tumor (ER+) samples and normal samples by command lines. 
-
-
 ### Visualizing PANDA output networks through Cytoscape
 Then, we want to visualize the output networks through Cytoscape for more information. We would combine the two output tables and select top differential edges.
 
