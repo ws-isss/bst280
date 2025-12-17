@@ -942,7 +942,7 @@ print(Final_TF_List_TStat_Ranked %>%
 library(dplyr)
 
 # TFs chosen for final module analysis (Ranked by reliable T-Stat)
-TFs_for_final_modules <- c("TFAP4", "RBPJ", "ESRRG", "NFYA", "SREBF1")
+TFs_for_final_modules <- c("TFAP4", "MAFB", "MBNL2")
 
 # Create a list to store the extracted gene modules (TF, Gene, Diff_Force)
 Final_Gene_Modules <- list()
