@@ -737,6 +737,8 @@ pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="inte
 ```
 
 We conducted PANDA analysis to generate two networks for tumor (ER+) samples and normal samples by command lines. 
+
+
 ### Visualizing PANDA output networks through Cytoscape
 Then, we want to visualize the output networks through Cytoscape for more information. We would combine the two output tables and select top differential edges.
 
@@ -810,6 +812,162 @@ write.table(panda_neg, file = "../output/panda_ERpos_tumor_vs_normal_topneg_edge
             sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 `panda_pos` captures TF–gene regulatory edges with increased strength in tumor relative to normal, whereas `panda_neg` captures edges that are weakened in tumor and stronger in normal.
+
+
+### Identifying top TFs
+```{r}
+# Load necessary library (already used in your previous steps)
+library(dplyr)
+
+# --- Define the function for the Paired T-test ---
+# The null hypothesis (H0) is: Mean(Force_tumor - Force_normal) = 0
+# Rejecting H0 means the TF's regulatory influence has significantly changed.
+
+run_t_test_for_tf <- function(tf_name, data = panda_merged) {
+  # Extract all target genes for the current TF
+  tf_data <- data %>% filter(TF == tf_name)
+  
+  # Ensure there are enough data points (at least 2, though PANDA ensures many more)
+  if (nrow(tf_data) < 2) {
+    return(data.frame(TF = tf_name, P_Value = NA, T_Statistic = NA, stringsAsFactors = FALSE))
+  }
+  
+  # Perform a Paired T-test on the tumor and normal forces
+  # We use 'paired=TRUE' because Force_tumor and Force_normal in the same row
+  # correspond to the SAME TF-Gene interaction.
+  test_result <- t.test(tf_data$Force_tumor, tf_data$Force_normal, paired = TRUE)
+  
+  return(data.frame(
+    TF = tf_name,
+    P_Value = test_result$p.value,
+    T_Statistic = test_result$statistic,
+    Mean_Diff = mean(tf_data$Diff_Force, na.rm = TRUE),
+    stringsAsFactors = FALSE
+  ))
+}
+
+TF_full_summary <- panda_merged %>%
+  group_by(TF) %>%
+  summarise(
+    # Directional Change (for t-test):
+    Mean_Diff_Force = mean(Diff_Force, na.rm = TRUE),
+    # Total Rewiring Magnitude (for ranking):
+    Sum_Abs_Diff = sum(abs(Diff_Force), na.rm = TRUE),
+    # Number of target genes for context:
+    Target_Count = n()
+  ) %>%
+  ungroup()
+
+# Get the list of unique TFs to test
+all_tfs <- TF_full_summary$TF
+
+# Note: This step can take a few minutes depending on the number of TFs (e.g., 997 TFs)
+
+# Apply the t-test function to all TFs
+print(paste("Starting T-tests for", length(all_tfs), "TFs..."))
+t_test_results <- bind_rows(lapply(all_tfs, run_t_test_for_tf))
+print("T-tests complete.")
+
+# Merge results back into the summary table
+TF_differential_results <- TF_full_summary %>%
+  left_join(t_test_results, by = "TF") %>%
+  # Filter out TFs with missing P-values
+  filter(!is.na(P_Value)) %>%
+  # Apply Benjamini-Hochberg correction for FDR control
+  mutate(P_Adj = p.adjust(P_Value, method = "BH")) %>%
+  
+  # Final ranking: sort by Adjusted P-value, then by magnitude of rewiring
+  arrange(P_Adj, desc(Sum_Abs_Diff))
+
+
+# --- Define the Significance Threshold ---
+FDR_threshold <- 0.05
+top_n_to_show <- 20
+
+# Filter for statistically significant TFs
+Significant_TFs <- TF_differential_results %>%
+  filter(P_Adj < FDR_threshold)
+
+# Display the top N significantly rewired TFs
+print(paste("Found", nrow(Significant_TFs), "significantly differentially targeting TFs (FDR <", FDR_threshold, ")."))
+print("--- Top 20 Significantly Rewired TFs (Ranked by P_Adj, then Sum_Abs_Diff) ---")
+
+# Select the top TFs for review
+Final_TF_List <- head(Significant_TFs, top_n_to_show)
+
+# Add a column indicating the direction of change
+Final_TF_List <- Final_TF_List %>%
+  mutate(
+    Direction = case_when(
+      Mean_Diff_Force > 0 ~ "GAIN_in_Tumor",
+      Mean_Diff_Force < 0 ~ "LOSS_in_Tumor",
+      TRUE ~ "Balanced"
+    )
+  ) %>%
+  select(TF, Direction, Mean_Diff_Force, Sum_Abs_Diff, Target_Count, P_Adj)
+
+print(Final_TF_List)
+```
+```{r}
+library(dplyr)
+
+# Assuming TF_differential_results contains the columns:
+# TF, Mean_Diff_Force, Sum_Abs_Diff, T_Statistic, P_Adj
+
+# Re-rank the significant TFs based on the T-Statistic
+
+# 1. Filter for statistically significant TFs (FDR < 0.05)
+Significant_TFs <- TF_differential_results %>%
+  filter(P_Adj < 0.05)
+
+# 2. Add Direction for clarity and rank by the absolute T-Statistic
+Final_TF_List_TStat_Ranked <- Significant_TFs %>%
+  mutate(
+    Direction = case_when(
+      Mean_Diff_Force > 0 ~ "GAIN_in_Tumor",
+      Mean_Diff_Force < 0 ~ "LOSS_in_Tumor",
+      TRUE ~ "Balanced"
+    ),
+    # Use absolute T-Statistic for ranking the overall magnitude of significance
+    Abs_T_Stat = abs(T_Statistic) 
+  ) %>%
+  arrange(desc(Abs_T_Stat)) %>%
+  head(20) # Get the top 20 most reliably rewired TFs
+
+print("--- Top 20 Differentially Targeting TFs (Ranked by T-Statistic) ---")
+print(Final_TF_List_TStat_Ranked %>% 
+      select(TF, Direction, Mean_Diff_Force, Sum_Abs_Diff, T_Statistic, P_Adj))
+```
+```{r}
+library(dplyr)
+
+# TFs chosen for final module analysis (Ranked by reliable T-Stat)
+TFs_for_final_modules <- c("TFAP4", "RBPJ", "ESRRG", "NFYA", "SREBF1")
+
+# Create a list to store the extracted gene modules (TF, Gene, Diff_Force)
+Final_Gene_Modules <- list()
+
+# Iterate through the chosen TFs
+for (tf in TFs_for_final_modules) {
+  
+  # Filter the main merged data for the specific TF
+  module_data <- panda_merged %>%
+    filter(TF == tf) %>%
+    # Rank by the MAGNITUDE of the difference (abs(Diff_Force)) to find the biggest change points
+    arrange(desc(abs(Diff_Force)))
+  
+  # Store the top 100 most rewired genes for this TF
+  Final_Gene_Modules[[tf]] <- module_data %>%
+    head(100) %>%
+    select(TF, Gene, Diff_Force)
+    
+  print(paste("Extracted top 100 differentially rewired targets for:", tf))
+}
+
+# Create a list of gene symbol vectors for functional analysis
+Final_Gene_Symbol_Lists <- lapply(Final_Gene_Modules, function(df) unique(df$Gene))
+```
+
 <!--```{R}
 tf_out_tumor  <- calcDegree(pandaTumor,  type = "tf")
 tf_out_normal <- calcDegree(pandaNormal, type = "tf")
