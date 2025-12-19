@@ -2,6 +2,8 @@
 title: "BST280"
 author: "group6"
 date: "2025-12-13"
+bibliography: references.bib
+link-citations: true
 output:
   pdf_document: default
   html_document: default
@@ -12,12 +14,49 @@ editor_options:
 
 # Introduction
 
+Breast cancer is currently the most frequently diagnosed malignancy
+among women globally [@sung2021global]. Among its various subtypes,
+Estrogen Receptor-positive (ER+) breast cancer is the most prevalent,
+accounting for approximately 70% of all cases [@giuliano2024treating;
+@siegel2024cancer]. This high incidence rate underscores the critical
+need for transcriptomic studies to better understand the molecular
+drivers of the ER+ phenotype.
+
+Despite clinical advances, understanding the transition from healthy
+mammary tissue to a malignant ER+ state requires a deep dive into the
+transcriptome. This analysis integrates high-throughput RNA-sequencing
+data from two large-scale and well-curated resources:**TCGA (The Cancer
+Genome Atlas):** Representing the tumoral landscape of ER+ Breast
+Carcinoma. **GTEx(Genotype-Tissue Expression):** Providing a robust
+baseline of healthy, non-diseased breast tissue.
+
+Identifying individual tumor-associated genes through differential
+expression is useful, but it often misses the bigger picture: cancer is
+fundamentally a systems-level failure of gene regulation. For ER+ breast
+cancer, the defining features, such as aberrant estrogen signaling and
+rapid proliferation, which are driven by complex transcription factor
+networks. By shifting our focus from isolated gene counts to the
+underlying regulatory architecture, we can better resolve the biological
+complexities of hormone-dependent tumors.
+
+**Objectives:** The primary goal of this study is to elucidate the
+transcriptomic and regulatory landscapes that distinguish ER-positive
+(ER+) breast carcinoma from healthy mammary tissue. By integrating
+primary tumor data from TCGA with healthy baseline samples from GTEx, we
+aim to provide a more robust comparison than traditional cancer-only
+studies.
+
+Together, these analyses seek to answer a fundamental research question:
+What specific genes and regulatory networks distinguish ER+ tumor
+tissues from truly healthy breast tissues (GTEx), and how does this
+inform our understanding of hormone-driven carcinogenesis?
+
 # Method
 
 ## Step1 load data & Preprocessing
-
+The initial phase of our analysis focused on integrating and standardizing transcriptomic data from two primary sources to facilitate a robust comparison between malignant and healthy breast tissues.
 ```{r}
-# 1. Load Library
+# 0. Load Library
 # install.packages("BiocManager")
 # BiocManager::install("SummarizedExperiment")
 # BiocManager::install("edgeR")
@@ -27,6 +66,8 @@ library(ggrepel)
 library(edgeR)
 library(limma)
 ```
+
+We utilized raw count matrices and metadata from the The Cancer Genome Atlas (TCGA) for tumor samples and the Genotype-Tissue Expression (GTEx) project for healthy control samples. We strictly filtered the TCGA cohort to include only ER-positive samples.
 
 ```{r}
 # 1. Load Data
@@ -44,6 +85,8 @@ gtex_meta <- as.data.frame(colData(gtex_data))
 write.csv(gtex_counts, file.path("../output/GTEx_Breast_Counts.csv"), row.names = TRUE)
 write.csv(gtex_meta, file.path("../output/GTEx_Breast_Metadata.csv"), row.names = TRUE)
 ```
+
+To ensure compatibility between the two datasets, we performed gene alignment by identifying the intersection of gene identifiers present in both TCGA and GTEx. Both matrices were subsetted to include only these common genes and then merged into a unified raw counts matrix. 
 
 ```{r}
 # 2. Filter ER+ samples
@@ -75,6 +118,12 @@ final_counts_matrix <- cbind(tcga_aligned, gtex_aligned)
 write.csv(final_counts_matrix, file.path("../output/Final_ERpos_Tumor_vs_Normal_Counts.csv"))
 print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
 ```
+
+To improve statistical power and reduce stochastic noise, we implemented a rigorous "Low-Count Filtering" protocol. We first calculated Counts Per Million (CPM) to normalize for differences in library size across samples. Genes were retained in the final dataset only if they exhibited a expression level of CPM > 1 in at least 25% of the total samples.
+
+This strategy eliminates genes with very low or sporadic expression that could otherwise bias variance estimates during differential expression analysis.
+
+This filtering process significantly refined our dataset, reducing it to approximately half of its original size while preserving high-quality, biologically relevant signals for downstream analysis.
 
 ```{r}
 # 5. Low Count Filtering
@@ -1537,6 +1586,18 @@ g+geom_point(aes(fill=NES), shape=21, colour="white")+
 
 ```
 
+
+## Stepn Gene-Level Deep Dive: TRPS1
+A central finding of our integrative approach was the identification of TRPS1 (Trichorhinophalangeal Syndrome 1) as a key regulatory node. By intersecting our DE results with PANDA-inferred targets, we identified TRPS1 as a central repressor and a specific marker of ER-positive identity. In the context of mammary biology, TRPS1 has been identified as a critical, context-dependent regulator of epithelial cell growth and differentiation [@cornelissen2020]. While our DE analysis identified thousands of candidates, TRPS1 stood out because it directly influences the Estrogen Receptor (ER) signaling landscape [@serandour2018].
+
+Our results show that TRPS1 is significantly upregulated in the ER+ tumor group compared to healthy breast tissue. To validate the biological context, we examined its expression across human tissues via GTEx data by using UCSC.
+
+![TRPS1 Tissue Specificity](../images/gtexGene_genome.png)
+
+The expression profile confirms that TRPS1 is highly tissue-specific, with its highest levels localized in Breast Mammary Tissue.
+
+This aligns with clinical findings that TRPS1 is a highly sensitive and specific marker for breast carcinoma, serving as a reliable diagnostic tool across various subtypes [@ai2021].
+
 ## Result
 
 ### Conclusion
@@ -1576,10 +1637,6 @@ approaches for understanding breast cancer
 
 ### Limitations and Future
 
-DirectionThis study focused exclusively on ER-positive breast tumors,
-andtherefore the identified regulatory patterns may not generalize to
-otherbreast cancer subtypes. Future work could extend this framework
-toER-negative tumors to directly compare subtype-specific and
-sharedregulatory mechanisms, as well as incorporate additional layers
-ofregulation such as epigenomic or single-cell data to further refine
-transcriptional network inference.
+Direction: This study focused exclusively on ER-positive breast tumors,and therefore the identified regulatory patterns may not generalize to other breast cancer subtypes. Future work could extend this framework to ER-negative tumors to directly compare subtype-specific and shared regulatory mechanisms, as well as incorporate additional layers of regulation such as epigenomic or single-cell data to further refine transcriptional network inference.
+
+# References
