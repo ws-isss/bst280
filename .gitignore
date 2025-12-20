@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+scripts/.DS_Store
+scripts/c2.cp.kegg.v7.0.symbols.gmt
+scripts/motif_GTEx.txt
+scripts/ppi_GTEx.txt
