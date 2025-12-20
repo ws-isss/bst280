@@ -3,23 +3,20 @@ title: "BST280"
 author: "group6"
 date: "2025-12-13"
 output:
-  pdf_document: default
-  html_document: default
----
-
-## step1 load data & Preprocessing
-
-# 1. Load Library
-=======
-bibliography: references.bib
-link-citations: true
-output:
-  pdf_document: default
+  pdf_document:
+    latex_engine: xelatex
+  output:
   html_document: default
 editor_options: 
   markdown: 
     wrap: 72
 ---
+
+
+# 1. Load Library
+
+bibliography: references.bib link-citations: true output: pdf_document:
+default html_document: default editor_options: markdown: wrap: 72 ---
 
 # Introduction
 
@@ -63,23 +60,43 @@ inform our understanding of hormone-driven carcinogenesis?
 # Method
 
 ## load data & Preprocessing
-The initial phase of our analysis focused on integrating and standardizing transcriptomic data from two primary sources to facilitate a robust comparison between malignant and healthy breast tissues.
-```{r}
+
+The initial phase of our analysis focused on integrating and
+standardizing transcriptomic data from two primary sources to facilitate
+a robust comparison between malignant and healthy breast tissues.
+
+```{r message = FALSE, warning=FALSE}
 # 0. Load Library
 # install.packages("BiocManager")
 # BiocManager::install("SummarizedExperiment")
 # BiocManager::install("edgeR")
-library(SummarizedExperiment)
+
+library(dplyr)
+library(GenomicRanges)
+library(IRanges)
+library(S4Vectors)
+library(BiocGenerics)
+library(matrixStats)
 library(ggplot2)
+library(enrichplot)
+library(gplots)
+library(biomaRt)
+library(clusterProfiler)
+library(msigdbr)
+library(SummarizedExperiment)
+library(SummarizedExperiment)
 library(ggrepel)
 library(edgeR)
 library(limma)
+
 ```
 
-We utilized raw count matrices and metadata from the The Cancer Genome Atlas (TCGA) for tumor samples and the Genotype-Tissue Expression (GTEx) project for healthy control samples. We strictly filtered the TCGA cohort to include only ER-positive samples.
+We utilized raw count matrices and metadata from the The Cancer Genome
+Atlas (TCGA) for tumor samples and the Genotype-Tissue Expression (GTEx)
+project for healthy control samples. We strictly filtered the TCGA
+cohort to include only ER-positive samples.
 
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 1. Load Data
 tcga_data <- readRDS(file.path("../data/tcga_brca.rds"))
 tcga_counts <- assay(tcga_data)
@@ -96,9 +113,12 @@ write.csv(gtex_counts, file.path("../output/GTEx_Breast_Counts.csv"), row.names 
 write.csv(gtex_meta, file.path("../output/GTEx_Breast_Metadata.csv"), row.names = TRUE)
 ```
 
-To ensure compatibility between the two datasets, we performed gene alignment by identifying the intersection of gene identifiers present in both TCGA and GTEx. Both matrices were subsetted to include only these common genes and then merged into a unified raw counts matrix. 
+To ensure compatibility between the two datasets, we performed gene
+alignment by identifying the intersection of gene identifiers present in
+both TCGA and GTEx. Both matrices were subsetted to include only these
+common genes and then merged into a unified raw counts matrix.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 2. Filter ER+ samples
 grep("estrogen", colnames(tcga_meta), value = TRUE, ignore.case = TRUE)
 
@@ -108,7 +128,7 @@ er_pos_ids <- which(tcga_meta[[target_col]] == "Positive")
 tcga_counts_ER_ONLY <- tcga_counts[, er_pos_ids]
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 3. Align genes
 genes_tcga <- rownames(tcga_counts_ER_ONLY)
 genes_gtex <- rownames(gtex_counts)
@@ -119,7 +139,7 @@ print(paste("GTEx:", length(genes_gtex)))
 print(paste("common:", length(common_genes)))
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 4. Subset and order both matrices by common genes
 tcga_aligned <- tcga_counts_ER_ONLY[common_genes, ]
 gtex_aligned <- gtex_counts[common_genes, ]
@@ -129,13 +149,21 @@ write.csv(final_counts_matrix, file.path("../output/Final_ERpos_Tumor_vs_Normal_
 print(paste("Dimensions:",nrow(final_counts_matrix),"genes x", ncol(final_counts_matrix), "samples"))
 ```
 
-To improve statistical power and reduce stochastic noise, we implemented a rigorous "Low-Count Filtering" protocol. We first calculated Counts Per Million (CPM) to normalize for differences in library size across samples. Genes were retained in the final dataset only if they exhibited a expression level of CPM > 1 in at least 25% of the total samples.
+To improve statistical power and reduce stochastic noise, we implemented
+a rigorous "Low-Count Filtering" protocol. We first calculated Counts
+Per Million (CPM) to normalize for differences in library size across
+samples. Genes were retained in the final dataset only if they exhibited
+a expression level of CPM \> 1 in at least 25% of the total samples.
 
-This strategy eliminates genes with very low or sporadic expression that could otherwise bias variance estimates during differential expression analysis.
+This strategy eliminates genes with very low or sporadic expression that
+could otherwise bias variance estimates during differential expression
+analysis.
 
-This filtering process significantly refined our dataset, reducing it to approximately half of its original size while preserving high-quality, biologically relevant signals for downstream analysis.
+This filtering process significantly refined our dataset, reducing it to
+approximately half of its original size while preserving high-quality,
+biologically relevant signals for downstream analysis.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 5. Low Count Filtering
 print(nrow(final_counts_matrix))
 
@@ -174,7 +202,7 @@ transformation reduces the influence of highly expressed genes and helps
 stabilize variance across genes, allowing PCA to better capture
 meaningful global expression patterns
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 1. CPM normalization and log transformß
 library_sizes <- colSums(final_counts_filtered)
 
@@ -190,7 +218,7 @@ space, and the proportion of variance explained by each principal
 component was computed to quantify their contribution to overall
 expression variability
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 2. PCA
 
 
@@ -214,13 +242,14 @@ var_exp <- round(100 * summary(pca_res)$importance[2, 1:2], 1)
 ```
 
 # Plot
+
 Here are our PCA results. The bar plot summarizes the proportion of
 total variance in the log-CPM expression matrix explained by each of the
 top 10 principal components. PC1 captures the largest source of
 variation in the dataset, explaining 26% of the total variance, while
 PC2 explains an additional 10%
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Plot1
 
 pca_var <- data.frame(
@@ -260,7 +289,7 @@ tumor samples display greater dispersion, particularly along PC2,
 reflecting increased transcriptional heterogeneity in ER-positive tumors
 compared to normal tissue.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Plot2
 ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
   geom_point(alpha = 0.6, size = 2) +
@@ -280,7 +309,6 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
   theme_classic(base_size = 16) +
   theme(legend.position = "right")
 ```
-
 
 While PCA reveals clear global differences between ER-positive tumor and
 normal samples, it does not identify which specific genes are
@@ -308,7 +336,7 @@ exhibiting higher average expression also displaying substantially
 larger variance. This heteroscedasticity violates the constant-variance
 assumption underlying linear modeling approaches
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 1. mean-variance relationship
 gene_sd   <- apply(final_counts_filtered, 1, sd)
 gene_mean <- apply(final_counts_filtered, 1, mean)
@@ -329,7 +357,7 @@ we subsequently applied the voom transformation, which models and
 corrects the mean–variance relationship, resulting in a smoother and
 more stable variance structure suitable for linear modeling
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 2. Voom Transformation
 group <- factor(
   c(
@@ -355,7 +383,7 @@ approximately constant across expression levels, indicating that model
 assumptions are satisfied and that the data are appropriately
 conditioned for reliable differential expression testing
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # 3. Linear model + Bayes
 fit <- lmFit(voom_out, design)
 fit <- eBayes(fit)
@@ -376,8 +404,7 @@ provides a ranked list of genes based on statistical evidence for
 differential expression and serves as the basis for downstream filtering
 and biological interpretation
 
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 res <- topTable(fit, coef = "groupNormal", number = Inf, adjust.method = "BH")
 head(res)
 
@@ -405,7 +432,7 @@ visualization (volcano/MA plots and heatmaps) and pathway-level
 enrichment analyses to interpret these changes at the level of
 biological programs.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 de_all_idx  <- res$adj.P.Val < 0.05 & abs(res$logFC) > 2
 n_de_all    <- sum(de_all_idx)
 
@@ -421,9 +448,10 @@ cat("Up in Normal (logFC > 2):", n_normal_up, "\n")
 ```
 
 ### Volcano Plot
+
 We next visualized the DE results using a volcano plot.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 plot_df <- data.frame(
   logFC = res$logFC,
   negLogFDR = -log10(res$adj.P.Val)
@@ -449,6 +477,7 @@ ggplot(plot_df, aes(x = logFC, y = negLogFDR, color = threshold)) +
   ) +
   theme_classic(base_size = 15)
 ```
+
 The volcano plot summarizes differential expression results by
 simultaneously displaying effect size and statistical significance. Each
 point represents one gene, with the x-axis showing the log2 fold change
@@ -488,7 +517,7 @@ fold-changes are concentrated among lowly expressed genes (which can be
 noisier) and whether the overall distribution of changes is centered
 around zero.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 ma_df <- data.frame(
   AveExpr = res$AveExpr,
   logFC   = res$logFC,
@@ -515,6 +544,7 @@ ggplot(ma_df, aes(x = AveExpr, y = logFC, color = threshold)) +
   ) +
   theme_classic(base_size = 15)
 ```
+
 The MA plot displays the relationship between gene expression abundance
 and differential expression. Each point represents one gene, with the
 x-axis showing the average log-expression across all samples and the
@@ -544,8 +574,8 @@ To further examine whether the most significant DE genes show consistent
 expression patterns across samples, we plotted a heatmap of the top 20
 genes ranked by adjusted p-value.
 
-```{r}
-library(gplots)
+```{r message = FALSE, warning=FALSE}
+
 
 res_ordered <- res[order(res$adj.P.Val), ]
 top_n <- 20
@@ -602,9 +632,7 @@ This consistent structure suggests that the observed differential
 expression reflects underlying biological differences rather than random
 variation.
 
-```{r}
-
-library(biomaRt)
+```{r message = FALSE, warning=FALSE}
 
 top_genes_stripped <- sub("\\..*", "", top_genes)
 ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
@@ -684,11 +712,7 @@ each Ensembl gene ID to its corresponding Entrez gene ID. The resulting
 mapping (`annot`) will be used to convert our ranked gene list into
 Entrez space before running Hallmark GSEA.
 
-```{r}
-library(biomaRt)
-library(clusterProfiler)
-library(msigdbr)
-library(dplyr)
+```{r message = FALSE, warning=FALSE}
 
 ensembl_ids <- sub("\\..*", "", rownames(res))
 ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
@@ -702,6 +726,7 @@ annot <- getBM(
 
 head(annot)
 ```
+
 Then we construct the **ranked gene list** required for preranked
 GSEA.\\ 1) We start from the limma output table `res` and create a
 version-stripped Ensembl ID column (`ensembl_nover`) so it matches the
@@ -728,7 +753,7 @@ positive t (and positive logFC) indicates higher expression in Normal
 relative to ER+ Tumor, while negative values indicate higher expression
 in ER+ Tumor.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 res_gsea <- res
 res_gsea$ensembl_nover <- sub("\\..*", "", rownames(res_gsea))
 
@@ -762,7 +787,7 @@ clusterProfiler::GSEA with FDR control to identify pathways
 systematically enriched toward either the ER+ tumor side or the normal
 side.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 m_df <- msigdbr(species = "Homo sapiens", category = "H")
 
 hallmark_term2gene <- m_df %>%
@@ -802,7 +827,7 @@ pathways into tumor-enriched and normal-enriched groups and ranked them
 by adjusted p-values to highlight the most strongly associated
 biological programs.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 gsea_hallmark_res <- as.data.frame(gsea_hallmark)
 
 # Tumor enriched (NES < 0)
@@ -822,16 +847,14 @@ top Hallmark gene sets identified by Gene Set Enrichment Analysis
 (GSEA).
 
 Specifically, we selected the top enriched Hallmark pathways on each
-side—those with the most negative normalized enrichment scores (NES),
+side-those with the most negative normalized enrichment scores (NES),
 indicating enrichment in ER+ tumor samples, and those with the most
 positive NES, indicating enrichment in normal tissue. These pathways
 were ranked by adjusted p-value, and the top ten from each group were
 displayed to highlight dominant, condition-specific transcriptional
 programs.
 
-```{r}
-library(ggplot2)
-
+```{r message = FALSE, warning=FALSE}
 top_show <- rbind(
   head(tumor_top, 10),
   head(normal_top, 10)
@@ -846,6 +869,7 @@ ggplot(top_show, aes(x = ID, y = NES)) +
        x = NULL, y = "NES (negative = ER+ Tumor enriched)") +
   theme_classic(base_size = 12)
 ```
+
 The bar plot illustrates a clear functional contrast between ER+ tumors
 and normal breast tissue at the pathway level. Hallmark gene sets with
 strongly negative NES values are enriched in ER+ tumors, whereas those
@@ -884,9 +908,7 @@ genes. A negative normalized enrichment score (NES) indicates enrichment
 toward the ER+ tumor end of the ranked list, while a positive NES
 indicates enrichment toward the normal tissue end.
 
-```{r}
-library(enrichplot)
-
+```{r message = FALSE, warning=FALSE}
 gseaplot2(gsea_hallmark, "HALLMARK_G2M_CHECKPOINT", title ="G2M checkpoint" )
 gseaplot2(gsea_hallmark, "HALLMARK_E2F_TARGETS", title = "E2F targets")
 gseaplot2(gsea_hallmark, "HALLMARK_ESTROGEN_RESPONSE_EARLY", title = "estrogen response early")
@@ -938,7 +960,7 @@ Current expression data is using version-stripped Ensembl gene names. To
 match gene names in the motif-TF and protein-protein interaction files,
 we need to remove the versions.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Remove Ensembl gene name versions
 rownames(logcpm_matrix) <- sub("\\..*$", "", rownames(logcpm_matrix))
 ```
@@ -948,7 +970,7 @@ and normal breast tissue data from GTEx. To achieve this goal, we
 outputed two expression datasets that can be used by PANDA analysis
 directly.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Separate cancer (ER+) and normal sets (filtered & normalized)
 
 n_tcga <- ncol(tcga_aligned)
@@ -978,13 +1000,19 @@ write.table(expr_normal, file = "../output/gtex_breast_expr_normal_filtered_logc
 
 ```
 
-
 ### Implement PANDA Analysis
 
-To map how gene regulation shifts in ER+ breast cancer, we constructed two condition-specific PANDA regulatory networks: one from normal breast tissue and one from ER+ tumor tissue. PANDA integrates gene expression, transcription factor binding motifs, and protein–protein interaction information to infer regulatory edge weights between transcription factors and their target genes.
+To map how gene regulation shifts in ER+ breast cancer, we constructed
+two condition-specific PANDA regulatory networks: one from normal breast
+tissue and one from ER+ tumor tissue. PANDA integrates gene expression,
+transcription factor binding motifs, and protein–protein interaction
+information to infer regulatory edge weights between transcription
+factors and their target genes.
 
-Below are the sample codes that we planed to run for PANDA network analysis. However, considering the computational cost of building huge PANDA networks, we ran PANDA in high-performance environment command line accessed from HUIT Open OnDemand platform.
-
+Below are the sample codes that we planed to run for PANDA network
+analysis. However, considering the computational cost of building huge
+PANDA networks, we ran PANDA in high-performance environment command
+line accessed from HUIT Open OnDemand platform.
 
 ```{r fig:panda_multi_1, echo=FALSE, fig.cap="PANDA Analyis for ER+ Tumor Implemented on HUIT OnDemand Command", fig.show="hold"}
 knitr::include_graphics("../images/panda_command_ERpos_tumor.png")
@@ -1004,15 +1032,22 @@ knitr::include_graphics(
 knitr::include_graphics(
   "../images/panda_command_normal_cont.png")
 ```
-Below is the R code for data preprocessing and running PANDA. Since running PANDA locally is very constricted by computation power, in the R version we selected the top 10,000 genes that explained the most variance. In the following regulatory network analysis, we used the output from the HUIT for completeness of dataset.
 
-Below is the R code for preprocessing data for PANDA. Due to the constraint in computation power, we selected the top 10,000 genes that can explain the most variance. In the subsequent analysis, we used the output from the complete dataset run in HUIT.
+Below is the R code for data preprocessing and running PANDA. Since
+running PANDA locally is very constricted by computation power, in the R
+version we selected the top 10,000 genes that explained the most
+variance. In the following regulatory network analysis, we used the
+output from the HUIT for completeness of dataset.
 
-```{r}
+Below is the R code for preprocessing data for PANDA. Due to the
+constraint in computation power, we selected the top 10,000 genes that
+can explain the most variance. In the subsequent analysis, we used the
+output from the complete dataset run in HUIT.
+
+```{r message = FALSE, warning=FALSE}
 #install and load necessary packages
 
 # install.packages("devtools")
-library(devtools)
 # devtools::install_github("netZoo/netZooR", build_vignettes = FALSE)
 # eNamespace("BiocManager", quietly = TRUE)  
 #    install.packages("BiocManager",repos = "http://cran.us.r-project.org")  
@@ -1021,16 +1056,21 @@ library(devtools)
 #install.packages("reshape2")
 #install.packages("visNetwork")
 
-library(tibble)
-library(netZooR)
-library(fgsea)
-library(ggplot2)
-library(reshape2)
-library('visNetwork') # for network visualization
+suppressPackageStartupMessages({
+  library(devtools)
+  library(tibble)
+  library(netZooR)
+  library(fgsea)
+  library(ggplot2)
+  library(reshape2)
+  library('visNetwork')
+  library(AnnotationDbi)
+  library(org.Hs.eg.db)
+})
+
 ```
 
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 # load ppi and motif data
 ppi <- read.table("../data/ppi_997TFs.txt")
 motif <- read.table("../data/motif_997TFs_ensembl.txt")
@@ -1050,14 +1090,9 @@ expr_normal_top <- expr_normal[top_genes_normal, ]
 expr_tumor_top <- expr_tumor[top_genes_tumor, ]
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 
 #mapping ensemble names to gene names
-
-library(AnnotationDbi)
-library(org.Hs.eg.db)
-
-
 ens_ids_normal <- rownames(expr_normal_top)
 
 mapping_normal <- mapIds(org.Hs.eg.db,
@@ -1094,7 +1129,7 @@ expr_clean_tumor$Symbol <- NULL
 
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 #select TFs of interest in motifs and ppis
 genes_use <- intersect(
   rownames(expr_clean_normal),
@@ -1150,29 +1185,37 @@ ppi_use_tumor <- ppi[
 ]
 ```
 
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 #pandaNormal <- panda(motif_use_normal, expr_clean_normal, ppi_use_normal, mode="intersection")
 #pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="intersection")
 
 ```
+
 ### Visualizing PANDA output networks through Cytoscape
 
 Then, we want to visualize the output networks through Cytoscape for
 more information. We would combine the two output tables and select top
 differential edges.
 
-By subtracting the normal network from the tumor network, we computed a differential force for each TF–gene interaction, which represents how much regulatory influence is gained or lost in the tumor state. Positive values indicate interactions that are strengthened or newly gained in tumors, while negative values represent regulatory relationships that are weakened or lost.
+By subtracting the normal network from the tumor network, we computed a
+differential force for each TF–gene interaction, which represents how
+much regulatory influence is gained or lost in the tumor state. Positive
+values indicate interactions that are strengthened or newly gained in
+tumors, while negative values represent regulatory relationships that
+are weakened or lost.
 
-To focus on the most biologically meaningful changes and reduce background noise, we restricted the visualization to the top 1,500 differential edges with the largest absolute force differences.
+To focus on the most biologically meaningful changes and reduce
+background noise, we restricted the visualization to the top 1,500
+differential edges with the largest absolute force differences.
 
-For current network visualization constructed with 1500 top differential edges, there are only 5 edges with negative edge weight differences.
+For current network visualization constructed with 1500 top differential
+edges, there are only 5 edges with negative edge weight differences.
 Hence, The strongest regulatory rewiring in ER+ BRCA is dominated by
 gained tumor-specific TF–gene interactions while loss of regulation is
 present but occurs at lower magnitude and is therefore underrepresented
 among the highest-ranked edges.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Load output data
 panda_tumor  <- read.delim("../output/output_panda_brca_ERpos_tumor_997TFs.txt",
                            stringsAsFactors = FALSE, sep = "")
@@ -1218,15 +1261,41 @@ Here is the visualization generated by Cytoscape:
 ```{r fig1, echo=FALSE, fig.cap="Top 1500 Differential Edges in PANDA Analysis of ER+ Tumor vs Normal Tissues", fig.show="hold"}
 knitr::include_graphics("../images/panda_ERpos_tumor_vs_normal_edges.png")
 ```
-In this image, we represented TFs by yellow triangles and genes by blue ellipse. The size of the nodes depended on their degrees (the connection counts). The edges are red for positive differences between the regulatory weights between ER+ tumor and normal samples and green for negative differences. The width of the edges also showed the magnitude of the differences.
 
-At the global level, this network exhibits a highly centralized, hub-dominated structure. One of the most interesting features is the overwhelming dominance of red edges, indicating that the majority of large-magnitude changes correspond to gains of regulatory interactions in the tumor. This suggests that ER+ tumors are characterized not simply by the loss of normal regulation, but by the acquisition of extensive new regulatory programs.
+In this image, we represented TFs by yellow triangles and genes by blue
+ellipse. The size of the nodes depended on their degrees (the connection
+counts). The edges are red for positive differences between the
+regulatory weights between ER+ tumor and normal samples and green for
+negative differences. The width of the edges also showed the magnitude
+of the differences.
 
-Rather than being evenly distributed across transcription factors, these gains are concentrated in a small subset of regulators. When we zoom into the network, several transcription factors emerge as clear “master hubs,” most notably ZNF235 and ZNF287, which acquire hundreds of new target genes in the tumor network. Other zinc finger transcription factors, including ZNF418, ZNF487, ZNF879, and ZFP28, also show extensive rewiring.
+At the global level, this network exhibits a highly centralized,
+hub-dominated structure. One of the most interesting features is the
+overwhelming dominance of red edges, indicating that the majority of
+large-magnitude changes correspond to gains of regulatory interactions
+in the tumor. This suggests that ER+ tumors are characterized not simply
+by the loss of normal regulation, but by the acquisition of extensive
+new regulatory programs.
 
-This pattern indicates that tumor-associated regulatory changes are highly structured. A limited number of transcription factors account for a disproportionate fraction of the regulatory rewiring observed in the expression data. In other words, the tumor network is not randomly altered, but reorganized around a small set of dominant regulators.
+Rather than being evenly distributed across transcription factors, these
+gains are concentrated in a small subset of regulators. When we zoom
+into the network, several transcription factors emerge as clear “master
+hubs,” most notably ZNF235 and ZNF287, which acquire hundreds of new
+target genes in the tumor network. Other zinc finger transcription
+factors, including ZNF418, ZNF487, ZNF879, and ZFP28, also show
+extensive rewiring.
 
-In this visualization, the large number of edges and nodes (317) result in a network with substantial overlapping. To simplify this, we construct separate network images for gained and lost regulation by selecting the strongest positive and negative differential TF–gene interactions between ER+ breast tumors and normal breast tissue.
+This pattern indicates that tumor-associated regulatory changes are
+highly structured. A limited number of transcription factors account for
+a disproportionate fraction of the regulatory rewiring observed in the
+expression data. In other words, the tumor network is not randomly
+altered, but reorganized around a small set of dominant regulators.
+
+In this visualization, the large number of edges and nodes (317) result
+in a network with substantial overlapping. To simplify this, we
+construct separate network images for gained and lost regulation by
+selecting the strongest positive and negative differential TF–gene
+interactions between ER+ breast tumors and normal breast tissue.
 
 ### Separate Visualization for Gained and Lost Regulartory Interactions
 
@@ -1236,8 +1305,7 @@ would require including weaker regulatory losses while excluding
 stronger gains, which would bias the network away from the most
 biologically significant interactions.
 
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 n_pos <- 500
 n_neg <- 100 
 
@@ -1258,26 +1326,72 @@ write.table(panda_neg, file = "../output/panda_ERpos_tumor_vs_normal_topneg_edge
             sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 
-Here, we show the Top 500 positive differential edges, representing regulatory interactions that are significantly strengthened or newly formed in ER+ tumors. This network highlights the regulatory architecture that the tumor actively builds to drive proliferation. Similar to the global network, this gain network is dominated by a small number of transcription factor hubs, most notably ZNF235, ZNF287, ZNF418, and PRDM6. These TFs acquire large numbers of new targets, suggesting that they play central roles in establishing tumor-specific transcriptional programs.
+Here, we show the Top 500 positive differential edges, representing
+regulatory interactions that are significantly strengthened or newly
+formed in ER+ tumors. This network highlights the regulatory
+architecture that the tumor actively builds to drive proliferation.
+Similar to the global network, this gain network is dominated by a small
+number of transcription factor hubs, most notably ZNF235, ZNF287,
+ZNF418, and PRDM6. These TFs acquire large numbers of new targets,
+suggesting that they play central roles in establishing tumor-specific
+transcriptional programs.
 
-Many target genes are co-regulated by multiple hub transcription factors, producing a dense, highly interconnected structure. This suggests coordinated regulatory control rather than independent, one-off TF–gene interactions. From a biological perspective, such coordination is consistent with processes like sustained proliferation, altered differentiation, and large-scale transcriptional reprogramming that are hallmarks of tumor progression.
+Many target genes are co-regulated by multiple hub transcription
+factors, producing a dense, highly interconnected structure. This
+suggests coordinated regulatory control rather than independent, one-off
+TF–gene interactions. From a biological perspective, such coordination
+is consistent with processes like sustained proliferation, altered
+differentiation, and large-scale transcriptional reprogramming that are
+hallmarks of tumor progression.
 
 ```{r fig2, echo=FALSE, fig.cap="Top 1500 Differential Edges in PANDA Analysis of ER+ Tumor vs Normal Tissues", fig.show="hold"}
 knitr::include_graphics("../images/panda_ERpos_tumor_vs_normal_topneg_edges.txt.png")
 ```
-Now, we show the Top 100 negative differential edges, representing regulatory interactions that were strong in normal tissue but are weakened or lost in the tumor. In contrast to the gain network, this loss network is noticeably smaller and more fragmented. Fewer transcription factors dominate, and the overall connectivity is reduced. This asymmetry suggests that ER+ tumor progression is driven more by the acquisition of new regulatory relationships than by the wholesale loss of normal regulation.
 
-Biologically, this pattern supports a model in which tumor cells do not simply shut down normal gene regulation, but instead overlay new regulatory programs on top of an existing framework. The loss of specific regulatory edges may reflect suppression of normal differentiation, tissue maintenance, or growth-control pathways, while the gains reflect active oncogenic rewiring.
+Now, we show the Top 100 negative differential edges, representing
+regulatory interactions that were strong in normal tissue but are
+weakened or lost in the tumor. In contrast to the gain network, this
+loss network is noticeably smaller and more fragmented. Fewer
+transcription factors dominate, and the overall connectivity is reduced.
+This asymmetry suggests that ER+ tumor progression is driven more by the
+acquisition of new regulatory relationships than by the wholesale loss
+of normal regulation.
 
-While these transcription factors are visually dominant due to their large number of connections, edge count alone does not tell us what biological processes are being affected. A transcription factor gaining hundreds of targets could be regulating many unrelated genes, or it could be coherently driving specific pathways. Therefore, to move beyond network topology and assess biological relevance, we next examined whether the targets of these gained and lost regulatory interactions are enriched for specific functional pathways and biological processes.
+Biologically, this pattern supports a model in which tumor cells do not
+simply shut down normal gene regulation, but instead overlay new
+regulatory programs on top of an existing framework. The loss of
+specific regulatory edges may reflect suppression of normal
+differentiation, tissue maintenance, or growth-control pathways, while
+the gains reflect active oncogenic rewiring.
 
+While these transcription factors are visually dominant due to their
+large number of connections, edge count alone does not tell us what
+biological processes are being affected. A transcription factor gaining
+hundreds of targets could be regulating many unrelated genes, or it
+could be coherently driving specific pathways. Therefore, to move beyond
+network topology and assess biological relevance, we next examined
+whether the targets of these gained and lost regulatory interactions are
+enriched for specific functional pathways and biological processes.
 
 ## Identifying top TFs from PANDA Analysis
 
-To quantitatively assess transcription factor–level regulatory rewiring, we performed a paired t-test for each of the 997 transcription factors in the PANDA network, comparing regulatory edge weights between ER+ tumor and normal tissue across all target genes for each TF. This paired framework accounts for within-TF variability and tests whether the overall regulatory influence of a TF differs systematically between conditions.
+To quantitatively assess transcription factor–level regulatory rewiring,
+we performed a paired t-test for each of the 997 transcription factors
+in the PANDA network, comparing regulatory edge weights between ER+
+tumor and normal tissue across all target genes for each TF. This paired
+framework accounts for within-TF variability and tests whether the
+overall regulatory influence of a TF differs systematically between
+conditions.
 
-To prioritize biologically meaningful regulators, we ranked transcription factors by their absolute t-statistics rather than by mean differential force alone. This ranking strategy is more robust than relying solely on average changes, as it emphasizes transcription factors whose regulatory shifts are both statistically significant and consistent across their target profiles, while down-weighting TFs driven by a small number of extreme edges or high variability.
-```{r}
+To prioritize biologically meaningful regulators, we ranked
+transcription factors by their absolute t-statistics rather than by mean
+differential force alone. This ranking strategy is more robust than
+relying solely on average changes, as it emphasizes transcription
+factors whose regulatory shifts are both statistically significant and
+consistent across their target profiles, while down-weighting TFs driven
+by a small number of extreme edges or high variability.
+
+```{r message = FALSE, warning=FALSE}
 # Define the function for the Paired T-test:
 # The null hypothesis (H0) is: Mean(Force_tumor - Force_normal) = 0
 # Rejecting H0 means the TF's regulatory influence has significantly changed.
@@ -1318,11 +1432,11 @@ t_test_results <- bind_rows(lapply(all_tfs, run_t_test_for_tf))
 print("T-tests complete.")
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Rank the results by absolute t-statistics
 TF_differential_results <- TF_full_summary %>%
   left_join(
-    t_test_results %>% select(-Mean_Diff_Force),
+    t_test_results %>% dplyr::select(-Mean_Diff_Force),
     by = "TF"
   ) %>%
   filter(!is.na(P_Value)) %>%
@@ -1346,7 +1460,7 @@ Final_TF_List <- TF_differential_results %>%
   ) %>%
   arrange(desc(Abs_T_Stat)) %>% 
   head(top_n_to_show) %>%
-  select(
+  dplyr::select(
     TF,
     Direction,
     Mean_Diff_Force,
@@ -1369,13 +1483,30 @@ knitr::kable(
 )
 ```
 
-Among the top-ranked transcription factors, MAFB, TFAP4, and MBNL2 emerged as particularly interesting These TFs exhibited not only high absolute t-statistics, indicating uniform and statistically reliable differential targeting, but also the largest sums of absolute differential forces, reflecting a substantial overall impact on the regulatory network. This concordance between statistical significance and network-level effect size suggests that these transcription factors act as major drivers of regulatory reprogramming in ER+ tumors.
+Among the top-ranked transcription factors, MAFB, TFAP4, and MBNL2
+emerged as particularly interesting These TFs exhibited not only high
+absolute t-statistics, indicating uniform and statistically reliable
+differential targeting, but also the largest sums of absolute
+differential forces, reflecting a substantial overall impact on the
+regulatory network. This concordance between statistical significance
+and network-level effect size suggests that these transcription factors
+act as major drivers of regulatory reprogramming in ER+ tumors.
 
-Notably, TFAP4 has been previously implicated in breast cancer progression, where it promotes tumor growth, cell migration, and invasion and is often regulated alongside renown c-MYC. Its emergence as a top-ranked transcription factor in this analysis provides independent, network-based support for its role as a key oncogenic regulator in ER+ breast cancer.
+Notably, TFAP4 has been previously implicated in breast cancer
+progression, where it promotes tumor growth, cell migration, and
+invasion and is often regulated alongside renown c-MYC. Its emergence as
+a top-ranked transcription factor in this analysis provides independent,
+network-based support for its role as a key oncogenic regulator in ER+
+breast cancer.
 
-Finally, to connect these transcription factor–level findings to downstream biological consequences, we extracted the top 100 target genes for each of these highly ranked transcription factors. These target sets were used for subsequent functional and pathway analyses to identify the biological processes most strongly influenced by tumor-specific regulatory rewiring.
+Finally, to connect these transcription factor–level findings to
+downstream biological consequences, we extracted the top 100 target
+genes for each of these highly ranked transcription factors. These
+target sets were used for subsequent functional and pathway analyses to
+identify the biological processes most strongly influenced by
+tumor-specific regulatory rewiring.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # TFs chosen for final module analysis (Ranked by reliable T-Stat)
 TFs_for_final_modules <- c("TFAP4", "MAFB", "MBNL2")
 
@@ -1389,7 +1520,7 @@ for (tf in TFs_for_final_modules) {
   
   Final_Gene_Modules[[tf]] <- module_data %>%
     head(100) %>%
-    select(TF, Gene, Diff_Force)
+    dplyr::select(TF, Gene, Diff_Force)
     
   print(paste("Extracted top 100 differentially rewired targets for:", tf))
 }
@@ -1397,9 +1528,10 @@ for (tf in TFs_for_final_modules) {
 Final_Gene_Symbol_Lists <- lapply(Final_Gene_Modules, function(df) unique(df$Gene))
 ```
 
-Afterwards, we did the regulatory network analysis to have a high-level understanding of the impact of gene changes on pathways in cells.
+Afterwards, we did the regulatory network analysis to have a high-level
+understanding of the impact of gene changes on pathways in cells.
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # preprocess data to pass the condition in calcDegree
 panda_tumor_df <- as.data.frame(panda_tumor, stringsAsFactors = FALSE)
 panda_normal_df <- as.data.frame(panda_normal, stringsAsFactors = FALSE)
@@ -1468,10 +1600,14 @@ gene_stats <- sort(gene_stats, decreasing = TRUE)
 
 ```
 
+We used fgseaMultilevel because it provides more accurate and stable
+p-value estimates for strongly enriched pathways compared to
+permutation-based fgsea. By using an adaptive multilevel Monte Carlo
+approach, fgseaMultilevel avoids the limitations of fixed permutations,
+particularly when enrichment signals are strong. This makes it more
+reliable for pathway inference in our network-based GSEA analysis.
 
-We used fgseaMultilevel because it provides more accurate and stable p-value estimates for strongly enriched pathways compared to permutation-based fgsea. By using an adaptive multilevel Monte Carlo approach, fgseaMultilevel avoids the limitations of fixed permutations, particularly when enrichment signals are strong. This makes it more reliable for pathway inference in our network-based GSEA analysis.
-
-```{r}
+```{r message = FALSE, warning=FALSE}
 #actual fgsea analysis
 system("curl -O  https://netzoo.s3.us-east-2.amazonaws.com/netZooR/tutorial_datasets/c2.cp.kegg.v7.0.symbols.gmt")
 pathways <- gmtPathways("./c2.cp.kegg.v7.0.symbols.gmt")
@@ -1481,15 +1617,27 @@ fgseaMulti <- fgseaMultilevel(pathways, gene_stats,  minSize=15, maxSize=500)
 head(fgseaMulti)
 ```
 
-```{r}
+```{r message = FALSE, warning=FALSE}
 # Subset to pathways with FDR < 0.05
 sig_multi <- fgseaMulti[fgseaMulti$padj < 0.05,]
 # Get the top 10 significant pathways enriched for genes having lower targeting in LCLs  
 sig_multi[order(sig_multi$NES)[1:10],]
 ```
-This table summarizes the top 10 pathways that are significantly enriched based on gene in-degree differences, with all listed pathways passing multiple-testing correction (adjusted p-values < 0.05). The negative enrichment scores (ES) indicate that genes in these pathways tend to have reduced regulatory in-degree in the tumor condition relative to normal. Notably, immune-related pathways (e.g., autoimmune thyroid disease, allograft rejection, antigen processing and presentation) dominate the results, suggesting widespread suppression or rewiring of immune regulatory programs. The enrichment of ribosome and arachidonic acid metabolism pathways further points to coordinated changes in translational and metabolic regulation associated with the disease state.
 
-```{r}
+This table summarizes the top 10 pathways that are significantly
+enriched based on gene in-degree differences, with all listed pathways
+passing multiple-testing correction (adjusted p-values \< 0.05). The
+negative enrichment scores (ES) indicate that genes in these pathways
+tend to have reduced regulatory in-degree in the tumor condition
+relative to normal. Notably, immune-related pathways (e.g., autoimmune
+thyroid disease, allograft rejection, antigen processing and
+presentation) dominate the results, suggesting widespread suppression or
+rewiring of immune regulatory programs. The enrichment of ribosome and
+arachidonic acid metabolism pathways further points to coordinated
+changes in translational and metabolic regulation associated with the
+disease state.
+
+```{r message = FALSE, warning=FALSE}
 dat <- data.frame(fgseaMulti)
 # Settings
 fdrcut <- 0.05 # FDR cut-off to use as output for significant signatures
@@ -1539,68 +1687,169 @@ g+geom_point(aes(fill=NES), shape=21, colour="white")+
 #   dpi = 300
 # )
 ```
+
 ## GSEA Enrichment Profile Analysis
-The provided dot plot illustrates a distinct transcriptional divergence between metabolic processes and immune-related pathways within the experimental phenotype. The visualization groups pathways by their Normalized Enrichment Score (NES), where red indicates upregulation and blue indicates downregulation, plotted against their adjusted p-value to denote statistical significance. The data reveals a clear bifurcation: the experimental condition is characterized by a robust enhancement of central metabolic and biosynthetic pathways, concomitant with a significant suppression of immune response and translational machinery.
 
-A detailed examination of the upregulated gene sets indicates a comprehensive metabolic reprogramming. There is a statistically significant enrichment in core energy-producing pathways, specifically the citrate cycle (TCA cycle) and glycolysis/gluconeogenesis. This suggests that the cells are undergoing a state of high energy demand or metabolic flux. This energetic shift appears to support specific biosynthetic activities, as evidenced by the positive enrichment of fatty acid metabolism, steroid biosynthesis, and the biosynthesis of unsaturated fatty acids. The concurrent upregulation of peroxisome activity and purine metabolism further corroborates a phenotype geared towards anabolic growth and lipid homeostasis. The presence of aminoacyl tRNA biosynthesis in the upregulated fraction implies that while global translation may be suppressed (as discussed below), the machinery for specific protein synthesis remains active or is being selectively prioritized.
+The provided dot plot illustrates a distinct transcriptional divergence
+between metabolic processes and immune-related pathways within the
+experimental phenotype. The visualization groups pathways by their
+Normalized Enrichment Score (NES), where red indicates upregulation and
+blue indicates downregulation, plotted against their adjusted p-value to
+denote statistical significance. The data reveals a clear bifurcation:
+the experimental condition is characterized by a robust enhancement of
+central metabolic and biosynthetic pathways, concomitant with a
+significant suppression of immune response and translational machinery.
 
-Conversely, the downregulated gene sets present a strong signature of immune suppression and reduced cellular signaling. The most significantly depleted pathways include allograft rejection, autoimmune thyroid disease, and graft-versus-host disease. The downregulation of antigen processing and presentation further suggests a mechanism of immune evasion or a dampening of the adaptive immune response. Structurally, the most prominent negative enrichment is observed in the ribosome pathway, represented by a large dot size indicative of a high gene count. This suggests a broad reduction in ribosomal biogenesis, which is often a cellular response to stress or a regulatory mechanism to conserve energy for the prioritized metabolic tasks identified above. Additionally, the suppression of the MAPK signaling pathway indicates a reduction in specific proliferation or stress-response signaling cascades.
+A detailed examination of the upregulated gene sets indicates a
+comprehensive metabolic reprogramming. There is a statistically
+significant enrichment in core energy-producing pathways, specifically
+the citrate cycle (TCA cycle) and glycolysis/gluconeogenesis. This
+suggests that the cells are undergoing a state of high energy demand or
+metabolic flux. This energetic shift appears to support specific
+biosynthetic activities, as evidenced by the positive enrichment of
+fatty acid metabolism, steroid biosynthesis, and the biosynthesis of
+unsaturated fatty acids. The concurrent upregulation of peroxisome
+activity and purine metabolism further corroborates a phenotype geared
+towards anabolic growth and lipid homeostasis. The presence of aminoacyl
+tRNA biosynthesis in the upregulated fraction implies that while global
+translation may be suppressed (as discussed below), the machinery for
+specific protein synthesis remains active or is being selectively
+prioritized.
 
-To validate the observed metabolic-immune trade-off, future studies should first corroborate key transcriptomic signatures via quantitative PCR and Western blotting, focusing on rate-limiting metabolic enzymes and antigen-presenting molecules. These molecular findings necessitate functional verification through metabolic profiling (e.g., Seahorse XF analysis) to quantify the energetic shift, coupled with flow cytometry and cytotoxicity assays to assess the physiological impact of the predicted immune evasion. Furthermore, mechanistic interrogation of the suppressed MAPK-ribosome axis using phospho-proteomics is recommended to elucidate the regulatory networks governing this distinct cellular reprogramming.
-```{r}
+Conversely, the downregulated gene sets present a strong signature of
+immune suppression and reduced cellular signaling. The most
+significantly depleted pathways include allograft rejection, autoimmune
+thyroid disease, and graft-versus-host disease. The downregulation of
+antigen processing and presentation further suggests a mechanism of
+immune evasion or a dampening of the adaptive immune response.
+Structurally, the most prominent negative enrichment is observed in the
+ribosome pathway, represented by a large dot size indicative of a high
+gene count. This suggests a broad reduction in ribosomal biogenesis,
+which is often a cellular response to stress or a regulatory mechanism
+to conserve energy for the prioritized metabolic tasks identified above.
+Additionally, the suppression of the MAPK signaling pathway indicates a
+reduction in specific proliferation or stress-response signaling
+cascades.
+
+To validate the observed metabolic-immune trade-off, future studies
+should first corroborate key transcriptomic signatures via quantitative
+PCR and Western blotting, focusing on rate-limiting metabolic enzymes
+and antigen-presenting molecules. These molecular findings necessitate
+functional verification through metabolic profiling (e.g., Seahorse XF
+analysis) to quantify the energetic shift, coupled with flow cytometry
+and cytotoxicity assays to assess the physiological impact of the
+predicted immune evasion. Furthermore, mechanistic interrogation of the
+suppressed MAPK-ribosome axis using phospho-proteomics is recommended to
+elucidate the regulatory networks governing this distinct cellular
+reprogramming.
+
+```{r message = FALSE, warning=FALSE}
 DE_gene <- read.csv("../data/DE_genes_ERpos_vs_Normal_FDR0.05_logFC2.csv")
+
+overlap <- base::intersect(
+  DE_gene$Gene_Symbol,
+  names(gene_in_diff_sym)
+)
 
 df_overlap <- data.frame(
   gene = overlap,
   reg_change = gene_in_diff_sym[overlap]
 ) %>%
-  left_join(DE_gene, by = c("gene" = "Gene_Symbol"))
-
-df_overlap %>%
+  left_join(DE_gene, by = c("gene" = "Gene_Symbol")) %>%
   arrange(desc(abs(reg_change)), desc(abs(logFC)))
 
+df_overlap[1:20, ]
+
 ```
-This table ranks genes by regulatory change (reg_change) derived from PANDA network analysis, alongside classical differential expression statistics (logFC and adjusted p-value). Importantly, several genes exhibit large regulatory changes despite modest or even opposite expression changes, highlighting regulatory rewiring that would not be captured by expression analysis alone. This discordance supports the value of a network-based approach: genes may become more or less centrally regulated without large shifts in mean expression.
 
-Notably, the top-ranked genes include a mixture of pseudogenes, ribosomal-related genes, cytoskeletal markers, and stress-response genes, many of which have been implicated in cancer biology, either as markers of cellular state (e.g., proliferation, differentiation) or as regulators of transcriptional and post-transcriptional programs. The presence of extremely small adjusted p-values indicates that these expression changes are highly robust, strengthening confidence in their biological relevance when interpreted together with regulatory metrics.
+This table ranks genes by regulatory change (reg_change) derived from
+PANDA network analysis, alongside classical differential expression
+statistics (logFC and adjusted p-value). Importantly, several genes
+exhibit large regulatory changes despite modest or even opposite
+expression changes, highlighting regulatory rewiring that would not be
+captured by expression analysis alone. This discordance supports the
+value of a network-based approach: genes may become more or less
+centrally regulated without large shifts in mean expression.
 
-Overall, the observations are consistent with our discovery in the above regulatory network graph, with genes involved in signaling and metabolism pathways ranking high in the list.
+Notably, the top-ranked genes include a mixture of pseudogenes,
+ribosomal-related genes, cytoskeletal markers, and stress-response
+genes, many of which have been implicated in cancer biology, either as
+markers of cellular state (e.g., proliferation, differentiation) or as
+regulators of transcriptional and post-transcriptional programs. The
+presence of extremely small adjusted p-values indicates that these
+expression changes are highly robust, strengthening confidence in their
+biological relevance when interpreted together with regulatory metrics.
 
-Some genes known to contribute to cancer development are discussed below:
+Overall, the observations are consistent with our discovery in the above
+regulatory network graph, with genes involved in signaling and
+metabolism pathways ranking high in the list.
+
+Some genes known to contribute to cancer development are discussed
+below:
 
 **HSPA8P1**
 
-HSPA8P1 is a pseudogene related to the chaperone HSPA8 (HSC70), which is involved in protein folding, autophagy, and stress responses. Dysregulation of heat shock protein–related pathways is common in ER-positive breast cancer, suggesting a role in tumor stress adaptation and proteostasis.
+HSPA8P1 is a pseudogene related to the chaperone HSPA8 (HSC70), which is
+involved in protein folding, autophagy, and stress responses.
+Dysregulation of heat shock protein–related pathways is common in
+ER-positive breast cancer, suggesting a role in tumor stress adaptation
+and proteostasis.
 
 **KRT1**
 
-KRT1 encodes a keratin involved in epithelial differentiation. Altered keratin regulation is frequently observed in breast cancer and often reflects changes in tumor differentiation state and epithelial identity, including ER-positive subtypes.
+KRT1 encodes a keratin involved in epithelial differentiation. Altered
+keratin regulation is frequently observed in breast cancer and often
+reflects changes in tumor differentiation state and epithelial identity,
+including ER-positive subtypes.
 
 **CENATAC**
 
-CENATAC is associated with centromere and chromatin organization. Disruption of chromatin and centromere regulation contributes to genomic instability, a hallmark of cancer progression.
+CENATAC is associated with centromere and chromatin organization.
+Disruption of chromatin and centromere regulation contributes to genomic
+instability, a hallmark of cancer progression.
 
 **SMTN**
 
-SMTN encodes smoothelin, a cytoskeletal protein involved in cellular structure. Changes in its regulation may reflect cytoskeletal remodeling relevant to tumor cell plasticity and invasiveness.
+SMTN encodes smoothelin, a cytoskeletal protein involved in cellular
+structure. Changes in its regulation may reflect cytoskeletal remodeling
+relevant to tumor cell plasticity and invasiveness.
 
 **REELD1**
 
-REELD1 has been implicated in cytoskeletal and cellular organization pathways. Regulatory changes in such genes may contribute to altered cell morphology and tumor progression.
-
+REELD1 has been implicated in cytoskeletal and cellular organization
+pathways. Regulatory changes in such genes may contribute to altered
+cell morphology and tumor progression.
 
 ## Stepn Gene-Level Deep Dive: TRPS1
-A central finding of our integrative approach was the identification of TRPS1 (Trichorhinophalangeal Syndrome 1) as a key regulatory node. By intersecting our DE results with PANDA-inferred targets, we identified TRPS1 as a central repressor and a specific marker of ER-positive identity. In the context of mammary biology, TRPS1 has been identified as a critical, context-dependent regulator of epithelial cell growth and differentiation [@cornelissen2020]. While our DE analysis identified thousands of candidates, TRPS1 stood out because it directly influences the Estrogen Receptor (ER) signaling landscape [@serandour2018].
 
-TRPS1 has also been found in colon cancer metastasis and osteosarcoma [@Cai2024, @Hong2013], suggesting that its ability in interrupting epithelial cells and forming cartilage tissues may also contribute to cancer metastasis in ER+ BRCA in our case.
+A central finding of our integrative approach was the identification of
+TRPS1 (Trichorhinophalangeal Syndrome 1) as a key regulatory node. By
+intersecting our DE results with PANDA-inferred targets, we identified
+TRPS1 as a central repressor and a specific marker of ER-positive
+identity. In the context of mammary biology, TRPS1 has been identified
+as a critical, context-dependent regulator of epithelial cell growth and
+differentiation [@cornelissen2020]. While our DE analysis identified
+thousands of candidates, TRPS1 stood out because it directly influences
+the Estrogen Receptor (ER) signaling landscape [@serandour2018].
 
-Our results show that TRPS1 is significantly upregulated in the ER+ tumor group compared to healthy breast tissue. To validate the biological context, we examined its expression across human tissues via GTEx data by using UCSC.
+TRPS1 has also been found in colon cancer metastasis and osteosarcoma
+[@Cai2024, @Hong2013], suggesting that its ability in interrupting
+epithelial cells and forming cartilage tissues may also contribute to
+cancer metastasis in ER+ BRCA in our case.
+
+Our results show that TRPS1 is significantly upregulated in the ER+
+tumor group compared to healthy breast tissue. To validate the
+biological context, we examined its expression across human tissues via
+GTEx data by using UCSC.
 
 ![TRPS1 Tissue Specificity](../images/gtexGene_genome.png)
 
-The expression profile confirms that TRPS1 is highly tissue-specific, with its highest levels localized in Breast Mammary Tissue.
+The expression profile confirms that TRPS1 is highly tissue-specific,
+with its highest levels localized in Breast Mammary Tissue.
 
-This aligns with clinical findings that TRPS1 is a highly sensitive and specific marker for breast carcinoma, serving as a reliable diagnostic tool across various subtypes [@ai2021].
+This aligns with clinical findings that TRPS1 is a highly sensitive and
+specific marker for breast carcinoma, serving as a reliable diagnostic
+tool across various subtypes [@ai2021].
 
 ## Result
 
@@ -1641,7 +1890,12 @@ approaches for understanding breast cancer
 
 ### Limitations and Future
 
-Direction: This study focused exclusively on ER-positive breast tumors,and therefore the identified regulatory patterns may not generalize to other breast cancer subtypes. Future work could extend this framework to ER-negative tumors to directly compare subtype-specific and shared regulatory mechanisms, as well as incorporate additional layers of regulation such as epigenomic or single-cell data to further refine transcriptional network inference.
+Direction: This study focused exclusively on ER-positive breast
+tumors,and therefore the identified regulatory patterns may not
+generalize to other breast cancer subtypes. Future work could extend
+this framework to ER-negative tumors to directly compare
+subtype-specific and shared regulatory mechanisms, as well as
+incorporate additional layers of regulation such as epigenomic or
+single-cell data to further refine transcriptional network inference.
 
 # References
-
