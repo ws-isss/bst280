@@ -53,7 +53,7 @@ inform our understanding of hormone-driven carcinogenesis?
 
 # Method
 
-## Step1 load data & Preprocessing
+## load data & Preprocessing
 The initial phase of our analysis focused on integrating and standardizing transcriptomic data from two primary sources to facilitate a robust comparison between malignant and healthy breast tissues.
 ```{r}
 # 0. Load Library
@@ -145,7 +145,7 @@ write.csv(final_counts_filtered, file.path("../output/Filtered_Final_ERpos_Tumor
 dim(final_counts_filtered)
 ```
 
-## Step2 Exploratory data analysis (PCA)
+## Exploratory data analysis (PCA)
 
 ### PCA
 
@@ -370,7 +370,7 @@ head(res)
 
 ```
 
-## Step3 Visualization and Enrichment Analysis
+## Visualization and Enrichment Analysis
 
 ### Explore the DE results
 
@@ -922,7 +922,7 @@ signaling is a primary driver of tumor growth. Enrichment of early
 estrogen response genes reflects active hormone-dependent
 transcriptional regulation in ER+ tumors.
 
-## Step4 PANDA network analysis
+## PANDA network analysis
 
 ### Prepare expression datasets for PANDA network analysis
 
@@ -977,24 +977,26 @@ To map how gene regulation shifts in ER+ breast cancer, we constructed two condi
 Below are the sample codes that we planed to run for PANDA network analysis. However, considering the computational cost of building huge PANDA networks, we ran PANDA in high-performance environment command line accessed from HUIT Open OnDemand platform.
 
 
-```{r fig:panda_multi, echo=False, fig.cap="PANDA Analyis for ER+ Tumor Implemented on HUIT OnDemand Command", fig.show="hold"}
+```{r fig:panda_multi_1, echo=FALSE, fig.cap="PANDA Analyis for ER+ Tumor Implemented on HUIT OnDemand Command", fig.show="hold"}
 knitr::include_graphics("../images/panda_command_ERpos_tumor.png")
 ```
 
-```{r fig:panda_multi, echo=False, fig.cap="PANDA Analyis for ER+ Tumor Implemented on HUIT OnDemand Command (Continued)", fig.show="hold"}
+```{r fig:panda_multi_2, echo=FALSE, fig.cap="PANDA Analyis for ER+ Tumor Implemented on HUIT OnDemand Command (Continued)", fig.show="hold"}
 knitr::include_graphics(
   "../images/panda_command_ERpos_tumor_cont.png")
 ```
 
-```{r fig:panda_multi, echo=False, fig.cap="PANDA Analyis for Normal Samples Implemented on HUIT OnDemand Command", fig.show="hold"}
+```{r fig:panda_multi_3, echo=FALSE, fig.cap="PANDA Analyis for Normal Samples Implemented on HUIT OnDemand Command", fig.show="hold"}
 knitr::include_graphics(
   "../images/panda_command_normal.png")
 ```
-```{r fig:panda_multi, echo=False, fig.cap="PANDA Analyis for Normal Sampled Implemented on HUIT OnDemand Command (Continued)", fig.show="hold"}
+
+```{r fig:panda_multi_4, echo=FALSE, fig.cap="PANDA Analyis for Normal Sampled Implemented on HUIT OnDemand Command (Continued)", fig.show="hold"}
 knitr::include_graphics(
   "../images/panda_command_normal_cont.png")
 ```
 
+Below is the R code for preprocessing data for PANDA. Due to the constraint in computation power, we selected the top 10,000 genes that can explain the most variance. In the subsequent analysis, we used the output from the complete dataset run in HUIT.
 
 ```{r}
 #install and load necessary packages
@@ -1021,7 +1023,6 @@ library('visNetwork') # for network visualization
 # load ppi and motif data
 ppi <- read.table("../data/ppi_997TFs.txt")
 motif <- read.table("../data/motif_997TFs_ensembl.txt")
-gene_name <- read.table("../data/motif_997TFs_geneNames.txt")
 
 expr_normal <- as.data.frame(expr_normal)
 expr_tumor <- as.data.frame(expr_tumor)
@@ -1142,8 +1143,8 @@ ppi_use_tumor <- ppi[
 ```
 
 ```{r}
-pandaNormal <- panda(motif_use_normal, expr_clean_normal, ppi_use_normal, mode="intersection")
-pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="intersection")
+#pandaNormal <- panda(motif_use_normal, expr_clean_normal, ppi_use_normal, mode="intersection")
+#pandaTumor <- panda(motif_use_tumor, expr_clean_tumor, ppi_use_tumor, mode="intersection")
 
 ```
 
@@ -1251,15 +1252,11 @@ write.table(panda_neg, file = "../output/panda_ERpos_tumor_vs_normal_topneg_edge
             sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 
-```{r fig1, echo=FALSE, fig.cap="Top 1500 Differential Edges in PANDA Analysis of ER+ Tumor vs Normal Tissues", fig.show="hold"}
-knitr::include_graphics("../images/panda_ERpos_tumor_vs_normal_toppos_edges.png")
-```
-
 Here, we show the Top 500 positive differential edges, representing regulatory interactions that are significantly strengthened or newly formed in ER+ tumors. This network highlights the regulatory architecture that the tumor actively builds to drive proliferation. Similar to the global network, this gain network is dominated by a small number of transcription factor hubs, most notably ZNF235, ZNF287, ZNF418, and PRDM6. These TFs acquire large numbers of new targets, suggesting that they play central roles in establishing tumor-specific transcriptional programs.
 
 Many target genes are co-regulated by multiple hub transcription factors, producing a dense, highly interconnected structure. This suggests coordinated regulatory control rather than independent, one-off TF–gene interactions. From a biological perspective, such coordination is consistent with processes like sustained proliferation, altered differentiation, and large-scale transcriptional reprogramming that are hallmarks of tumor progression.
 
-```{r fig1, echo=FALSE, fig.cap="Top 1500 Differential Edges in PANDA Analysis of ER+ Tumor vs Normal Tissues", fig.show="hold"}
+```{r fig2, echo=FALSE, fig.cap="Top 1500 Differential Edges in PANDA Analysis of ER+ Tumor vs Normal Tissues", fig.show="hold"}
 knitr::include_graphics("../images/panda_ERpos_tumor_vs_normal_topneg_edges.txt.png")
 ```
 Now, we show the Top 100 negative differential edges, representing regulatory interactions that were strong in normal tissue but are weakened or lost in the tumor. In contrast to the gain network, this loss network is noticeably smaller and more fragmented. Fewer transcription factors dominate, and the overall connectivity is reduced. This asymmetry suggests that ER+ tumor progression is driven more by the acquisition of new regulatory relationships than by the wholesale loss of normal regulation.
@@ -1269,7 +1266,7 @@ Biologically, this pattern supports a model in which tumor cells do not simply s
 While these transcription factors are visually dominant due to their large number of connections, edge count alone does not tell us what biological processes are being affected. A transcription factor gaining hundreds of targets could be regulating many unrelated genes, or it could be coherently driving specific pathways. Therefore, to move beyond network topology and assess biological relevance, we next examined whether the targets of these gained and lost regulatory interactions are enriched for specific functional pathways and biological processes.
 
 
-## Step5 Identifying top TFs from PANDA Analysis
+## Identifying top TFs from PANDA Analysis
 
 To quantitatively assess transcription factor–level regulatory rewiring, we performed a paired t-test for each of the 997 transcription factors in the PANDA network, comparing regulatory edge weights between ER+ tumor and normal tissue across all target genes for each TF. This paired framework accounts for within-TF variability and tests whether the overall regulatory influence of a TF differs systematically between conditions.
 
